@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:dp_project/controllers/bluetooth_controller.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -91,61 +92,76 @@ class HomePage extends StatelessWidget {
                           ),
                         );
                       }
-                      return ListView.builder(
-                        itemCount: snapshot.data!.length,
-                        itemBuilder: (context, index) {
-                          final result = snapshot.data![index];
-                          final device = result.device;
-                          final rssi = result.rssi;
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            color: const Color(0xFF2C2C2C),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: ListTile(
-                              leading: const CircleAvatar(
-                                backgroundColor: Colors.blue,
-                                child: Icon(
-                                  Icons.bluetooth,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              title: Text(
-                                device.name.isEmpty
-                                    ? 'Unknown Device (${device.id.id.substring(0, 8)})'
-                                    : device.name,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              subtitle: Text(
-                                device.id.id,
-                                style: TextStyle(
-                                  color: Colors.grey[400],
-                                ),
-                              ),
-                              trailing: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  '$rssi dBm',
-                                  style: const TextStyle(
-                                    color: Colors.blue,
-                                    fontWeight: FontWeight.bold,
+                      return AnimationLimiter(
+                        child: ListView.builder(
+                          itemCount: snapshot.data!.length,
+                          itemBuilder: (context, index) {
+                            final result = snapshot.data![index];
+                            final device = result.device;
+                            final rssi = result.rssi;
+                            return AnimationConfiguration.staggeredList(
+                              position: index,
+                              duration: const Duration(milliseconds: 600),
+                              delay: const Duration(milliseconds: 200),
+                              child: SlideAnimation(
+                                horizontalOffset: 100.0,
+                                curve: Curves.easeOutQuart,
+                                child: FadeInAnimation(
+                                  curve: Curves.easeOutQuart,
+                                  child: Card(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    color: const Color(0xFF2C2C2C),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: ListTile(
+                                      leading: const CircleAvatar(
+                                        backgroundColor: Colors.blue,
+                                        child: Icon(
+                                          Icons.bluetooth,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      title: Text(
+                                        device.name.isEmpty
+                                            ? 'Unknown Device (${device.id.id.substring(0, 8)})'
+                                            : device.name,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      subtitle: Text(
+                                        device.id.id,
+                                        style: TextStyle(
+                                          color: Colors.grey[400],
+                                        ),
+                                      ),
+                                      trailing: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.withOpacity(0.2),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                        ),
+                                        child: Text(
+                                          '$rssi dBm',
+                                          style: const TextStyle(
+                                            color: Colors.blue,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       );
                     },
                   ),

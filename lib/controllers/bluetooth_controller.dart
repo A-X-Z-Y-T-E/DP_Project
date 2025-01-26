@@ -44,38 +44,52 @@ class BluetoothController extends GetxController {
         return;
       }
 
-      Get.snackbar(
-        'Scanning',
-        'Searching for devices...',
-        backgroundColor: const Color(0xFF2C2C2C),
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 8,
-        icon: const Icon(Icons.search, color: Colors.blue),
-        duration: const Duration(seconds: 2),
+      // Show scanning dialog
+      Get.dialog(
+        WillPopScope(
+          onWillPop: () async => false,
+          child: const Dialog(
+            backgroundColor: Color(0xFF2C2C2C),
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    color: Colors.blue,
+                  ),
+                  SizedBox(height: 20),
+                  Text(
+                    'Scanning for devices...',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        barrierDismissible: false,
       );
 
       await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 15),
+        timeout: const Duration(seconds: 10),
         androidUsesFineLocation: true,
       );
 
-      await Future.delayed(const Duration(seconds: 15));
-      await FlutterBluePlus.stopScan();
+      // Wait for 3.5 seconds before showing results
+      await Future.delayed(const Duration(milliseconds: 3800));
 
-      Get.snackbar(
-        'Scan Complete',
-        'Found ${_scanResults.length} devices',
-        backgroundColor: const Color(0xFF2C2C2C),
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 8,
-        icon: const Icon(Icons.bluetooth_searching, color: Colors.green),
-        duration: const Duration(seconds: 2),
-      );
+      // Close the loading dialog
+      Get.back();
+
+      await FlutterBluePlus.stopScan();
     } catch (e) {
+      // Close the loading dialog if there's an error
+      if (Get.isDialogOpen ?? false) Get.back();
+
       Get.snackbar(
         'Error',
         e.toString(),
