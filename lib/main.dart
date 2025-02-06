@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:dp_project/views/home_page.dart';
+import 'package:Vital_Monitor/views/home_page.dart';
 import 'package:get/get.dart';
 
 void main() {

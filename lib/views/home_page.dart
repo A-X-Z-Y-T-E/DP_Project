@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:dp_project/views/bluetooth_scan_page.dart';
-import 'package:dp_project/views/demo_page.dart';
+import 'package:Vital_Monitor/views/bluetooth_scan_page.dart';
+import 'package:Vital_Monitor/views/demo_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:dp_project/controllers/bluetooth_controller.dart';
+import 'package:Vital_Monitor/controllers/bluetooth_controller.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
