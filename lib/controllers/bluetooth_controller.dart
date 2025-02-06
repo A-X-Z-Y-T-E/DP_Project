@@ -102,4 +102,69 @@ class BluetoothController extends GetxController {
       );
     }
   }
+
+  Future<void> connectToDevice(BluetoothDevice device) async {
+    try {
+      Get.dialog(
+        WillPopScope(
+          onWillPop: () async => false,
+          child: Dialog(
+            backgroundColor: const Color(0xFF2C2C2C),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(
+                    color: Colors.blue,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Connecting to ${device.name.isEmpty ? 'Unknown Device' : device.name}...',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        barrierDismissible: false,
+      );
+
+      await device.connect(
+        timeout: const Duration(seconds: 5),
+        autoConnect: false,
+      );
+
+      Get.back();
+
+      Get.snackbar(
+        'Success',
+        'Connected to ${device.name.isEmpty ? 'Unknown Device' : device.name}',
+        backgroundColor: const Color(0xFF2C2C2C),
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 8,
+        icon: const Icon(Icons.bluetooth_connected, color: Colors.green),
+      );
+    } catch (e) {
+      if (Get.isDialogOpen ?? false) Get.back();
+
+      Get.snackbar(
+        'Error',
+        'Failed to connect. Try again',
+        backgroundColor: const Color(0xFF2C2C2C),
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 8,
+        icon: const Icon(Icons.error_outline, color: Colors.redAccent),
+      );
+    }
+  }
 }

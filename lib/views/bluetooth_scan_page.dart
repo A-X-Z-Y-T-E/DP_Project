@@ -4,8 +4,8 @@ import 'package:dp_project/controllers/bluetooth_controller.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+class BluetoothScanPage extends StatelessWidget {
+  const BluetoothScanPage({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -17,6 +17,10 @@ class HomePage extends StatelessWidget {
         title: const Text(
           'Bluetooth Scanner',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Get.back(),
         ),
         centerTitle: true,
       ),
