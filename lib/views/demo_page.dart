@@ -21,190 +21,254 @@ class DemoPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        leading: IconButton(
-          icon: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white24),
-            ),
-            child: const Icon(Icons.arrow_back, color: Colors.white),
-          ),
-          onPressed: () => Get.back(),
-        ),
-        title: const Text(
-          'DEMO MODE',
-          style: TextStyle(
-            fontFamily: 'Montserrat',
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        centerTitle: true,
-      ),
       body: Container(
-        decoration: const BoxDecoration(
-          color: Colors.black, // Simple black background
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,
+              const Color(0xFF1A1A1A),
+              const Color(0xFF242424),
+              Colors.grey[900]!,
+              Colors.black,
+            ],
+            stops: const [0.0, 0.5, 0.7, 0.9, 1.0],
+          ),
         ),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
+        child: ShaderMask(
+          shaderCallback: (Rect bounds) {
+            return LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Colors.transparent,
-                Colors.white.withAlpha(3),
-                Colors.white.withAlpha(5),
+                Colors.white.withAlpha(8),
+                Colors.white.withAlpha(10),
+                Colors.white.withAlpha(12),
+                Colors.white.withAlpha(15),
                 Colors.transparent,
               ],
-              stops: const [0.0, 0.5, 0.8, 1.0],
-            ),
-          ),
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black,
-                        border: Border.all(
-                          color: Colors.green,
-                          width: 2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.green.withAlpha(30),
-                            blurRadius: 20,
-                            spreadRadius: 5,
-                          ),
-                        ],
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.devices,
-                          size: 40,
-                          color: Colors.green,
-                        ),
-                      ),
+              stops: const [0.0, 0.6, 0.8, 0.9, 1.0],
+            ).createShader(bounds);
+          },
+          blendMode: BlendMode.overlay,
+          child: CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                backgroundColor: Colors.black,
+                expandedHeight: 120,
+                floating: false,
+                pinned: true,
+                leading: IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white24),
                     ),
+                    child: const Icon(Icons.arrow_back,
+                        color: Colors.white, size: 20),
                   ),
-                  const SizedBox(height: 32),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        Text(
-                          "ENTER VITAL SIGNS",
+                  onPressed: () => Get.back(),
+                ),
+                flexibleSpace: FlexibleSpaceBar(
+                  title: Row(
+                    children: [
+                      const CircleAvatar(
+                        radius: 16,
+                        backgroundColor: Colors.grey,
+                        child:
+                            Icon(Icons.person, color: Colors.white, size: 20),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withAlpha(20),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'TODAY',
                           style: TextStyle(
                             fontFamily: 'Montserrat',
-                            color: Colors.white54,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.info_outline,
-                          color: Colors.white.withAlpha(102),
-                          size: 16,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  _buildInputField(
-                    controller: bpmController,
-                    label: 'HEART RATE',
-                    hint: 'Enter BPM',
-                    keyboardType: TextInputType.number,
-                    icon: Icons.favorite,
-                    color: const Color(0xFFFF1744),
-                    range: '60-100 BPM',
-                  ),
-                  const SizedBox(height: 16),
-                  _buildInputField(
-                    controller: spo2Controller,
-                    label: 'BLOOD OXYGEN',
-                    hint: 'Enter SpO2',
-                    keyboardType: TextInputType.number,
-                    icon: Icons.air,
-                    color: const Color(0xFF00B0FF),
-                    range: '95-100%',
-                  ),
-                  const SizedBox(height: 16),
-                  _buildInputField(
-                    controller: tempController,
-                    label: 'TEMPERATURE',
-                    hint: 'Enter temperature',
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    icon: Icons.thermostat,
-                    color: const Color(0xFFFFAB40),
-                    range: '36.1-37.2°C',
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildInputField(
-                          controller: systolicController,
-                          label: 'SYSTOLIC',
-                          hint: 'mmHg',
-                          keyboardType: TextInputType.number,
-                          icon: Icons.speed,
-                          color: const Color(0xFFE040FB),
-                          range: '90-120',
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildInputField(
-                          controller: diastolicController,
-                          label: 'DIASTOLIC',
-                          hint: 'mmHg',
-                          keyboardType: TextInputType.number,
-                          icon: Icons.speed,
-                          color: const Color(0xFFE040FB),
-                          range: '60-80',
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  _buildInputField(
-                    controller: sugarController,
-                    label: 'BLOOD SUGAR',
-                    hint: 'Enter mg/dL',
-                    keyboardType: TextInputType.number,
-                    icon: Icons.water_drop,
-                    color: const Color(0xFF64FFDA),
-                    range: '70-140 mg/dL',
-                  ),
-                  const SizedBox(height: 32),
-                  Container(
-                    width: double.infinity,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.green.withAlpha(77),
-                        width: 1.5,
+                  centerTitle: false,
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 40),
+                  child: Column(
+                    children: [
+                      // Tab Bar
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _buildTab('OVERVIEW', true),
+                            _buildTab('STRAIN', false),
+                            _buildTab('RECOVERY', false),
+                            _buildTab('SLEEP', false),
+                          ],
+                        ),
                       ),
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
+                      const SizedBox(height: 30),
+                      // Recovery Circle
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          SizedBox(
+                            width: 200,
+                            height: 200,
+                            child: CircularProgressIndicator(
+                              value: 0.87,
+                              strokeWidth: 8,
+                              backgroundColor: Colors.white.withAlpha(20),
+                              color: Colors.green,
+                            ),
+                          ),
+                          Column(
+                            children: [
+                              const Text(
+                                '87%',
+                                style: TextStyle(
+                                  fontFamily: 'Montserrat',
+                                  fontSize: 42,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.green,
+                                ),
+                              ),
+                              Text(
+                                'RECOVERY',
+                                style: TextStyle(
+                                  fontFamily: 'Montserrat',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white.withAlpha(150),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'HRV 69',
+                                style: TextStyle(
+                                  fontFamily: 'Roboto',
+                                  fontSize: 14,
+                                  color: Colors.white.withAlpha(120),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      // Strain and Calories
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '11.8',
+                                  style: TextStyle(
+                                    fontFamily: 'Montserrat',
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.blue.shade300,
+                                  ),
+                                ),
+                                Text(
+                                  'DAY STRAIN',
+                                  style: TextStyle(
+                                    fontFamily: 'Montserrat',
+                                    fontSize: 12,
+                                    color: Colors.white.withAlpha(150),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                const Text(
+                                  '1,073',
+                                  style: TextStyle(
+                                    fontFamily: 'Montserrat',
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                Text(
+                                  'CALORIES',
+                                  style: TextStyle(
+                                    fontFamily: 'Montserrat',
+                                    fontSize: 12,
+                                    color: Colors.white.withAlpha(150),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 30),
+                      // Start Activity Button
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white.withAlpha(20),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                          ),
+                          onPressed: () {},
+                          child: const Text(
+                            'START ACTIVITY',
+                            style: TextStyle(
+                              fontFamily: 'Montserrat',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // Activity List
+                      _buildActivityTile(
+                        icon: Icons.directions_run,
+                        color: Colors.blue,
+                        title: 'RUNNING',
+                        time: '9.1',
+                        startTime: '7:49am',
+                        endTime: '7:14am',
+                      ),
+                      _buildActivityTile(
+                        icon: Icons.nightlight_round,
+                        color: Colors.grey,
+                        title: 'SLEEP',
+                        time: '7:02',
+                        startTime: '5:53am',
+                        endTime: '(Tue) 10:30pm',
+                      ),
+                      const SizedBox(height: 20),
+                      // Health Monitor
+                      InkWell(
                         onTap: () {
                           Get.to(() => HealthMonitorPage(
                                 deviceName: 'Demo Device',
@@ -217,91 +281,260 @@ class DemoPage extends StatelessWidget {
                                 bloodSugar: sugarController.text,
                               ));
                         },
-                        borderRadius: BorderRadius.circular(16),
-                        child: const Center(
-                          child: Text(
-                            'START MONITORING',
-                            style: TextStyle(
-                              fontFamily: 'Montserrat',
-                              color: Colors.green,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.0,
-                            ),
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 20),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withAlpha(10),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.favorite_border,
+                                    color: Colors.white.withAlpha(150),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  const Text(
+                                    'HEALTH MONITOR',
+                                    style: TextStyle(
+                                      fontFamily: 'Montserrat',
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  Text(
+                                    '5/5 METRICS',
+                                    style: TextStyle(
+                                      fontFamily: 'Roboto',
+                                      fontSize: 12,
+                                      color: Colors.white.withAlpha(150),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.withAlpha(40),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(
+                                      Icons.check,
+                                      size: 16,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 20),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          children: [
+                            _buildInputField(
+                              label: 'HEART RATE',
+                              controller: bpmController,
+                              color: const Color(0xFFFF1744),
+                            ),
+                            const SizedBox(height: 16),
+                            _buildInputField(
+                              label: 'BLOOD OXYGEN',
+                              controller: spo2Controller,
+                              color: const Color(0xFF00B0FF),
+                            ),
+                            const SizedBox(height: 16),
+                            _buildInputField(
+                              label: 'TEMPERATURE',
+                              controller: tempController,
+                              color: const Color(0xFF00E676),
+                            ),
+                            const SizedBox(height: 16),
+                            _buildInputField(
+                              label: 'SYSTOLIC',
+                              controller: systolicController,
+                              color: const Color(0xFF00B0FF),
+                            ),
+                            const SizedBox(height: 16),
+                            _buildInputField(
+                              label: 'DIASTOLIC',
+                              controller: diastolicController,
+                              color: const Color(0xFF00B0FF),
+                            ),
+                            const SizedBox(height: 16),
+                            _buildInputField(
+                              label: 'BLOOD SUGAR',
+                              controller: sugarController,
+                              color: const Color(0xFF00E676),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        backgroundColor: Colors.black,
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: Colors.white,
+        unselectedItemColor: Colors.white.withAlpha(100),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.watch), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.camera_alt), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.group), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.menu), label: ''),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTab(String title, bool isSelected) {
+    return Column(
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontFamily: 'Montserrat',
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isSelected ? Colors.white : Colors.white.withAlpha(100),
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (isSelected)
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildActivityTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String time,
+    required String startTime,
+    required String endTime,
+  }) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 12),
+          Text(
+            '$title $time',
+            style: TextStyle(
+              fontFamily: 'Montserrat',
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            '$startTime → $endTime',
+            style: TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 12,
+              color: Colors.white.withAlpha(150),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildInputField({
-    required TextEditingController controller,
     required String label,
-    required String hint,
-    required TextInputType keyboardType,
-    required IconData icon,
+    required TextEditingController controller,
     required Color color,
-    required String range,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Montserrat',
-                color: color.withAlpha(180),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.8,
-              ),
-            ),
-          ],
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'Montserrat',
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Colors.white.withAlpha(150),
+          ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: color.withAlpha(15),
-            borderRadius: BorderRadius.circular(14),
+            color: const Color(0xFF1C1C23),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: color.withAlpha(77),
-              width: 1.5,
+              color: color.withAlpha(26),
+              width: 1,
             ),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.white.withAlpha(3),
+                Colors.white.withAlpha(8),
+                Colors.white.withAlpha(8),
+                Colors.white.withAlpha(3),
+              ],
+              stops: const [0.0, 0.3, 0.7, 1.0],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(50),
+                blurRadius: 10,
+                spreadRadius: 1,
+              ),
+            ],
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           child: TextField(
             controller: controller,
-            keyboardType: keyboardType,
-            style: TextStyle(
-              fontFamily: 'Roboto',
-              color: color,
-              fontSize: 22,
-              fontWeight: FontWeight.w500,
-              letterSpacing: -0.5,
+            style: const TextStyle(
+              fontFamily: 'Montserrat',
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
             ),
             decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: TextStyle(
-                fontFamily: 'Roboto',
-                color: color.withAlpha(77),
-                fontSize: 18,
-                fontWeight: FontWeight.w400,
-              ),
               border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 18,
-                vertical: 16,
+              hintText: label,
+              hintStyle: TextStyle(
+                fontFamily: 'Montserrat',
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white.withAlpha(100),
               ),
             ),
           ),
