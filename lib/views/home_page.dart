@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:Vital_Monitor/views/bluetooth_scan_page.dart';
 import 'package:Vital_Monitor/views/demo_page.dart';
+import 'package:Vital_Monitor/views/bluetooth_scan_page.dart';
+import 'package:Vital_Monitor/services/auth.dart';
+import 'package:Vital_Monitor/views/login.dart';
+import 'package:Vital_Monitor/controllers/user_controller.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -20,6 +23,15 @@ class HomePage extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              final userController = Get.find<UserController>();
+              userController.logout();
+            },
+          ),
+        ],
         centerTitle: true,
       ),
       body: Center(

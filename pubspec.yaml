@@ -30,13 +30,21 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.15.3
+  google_sign_in: ^6.1.6
+  get: ^4.6.6
   flutter_reactive_ble: ^5.2.0
   flutter_blue_plus: ^1.31.15
-  get: ^4.6.5
   cupertino_icons: ^1.0.8
   permission_handler: ^11.3.0
   flutter_staggered_animations: ^1.1.1
   fl_chart: ^0.66.2
+  flutter_signin_button: ^2.0.0
+  firebase_database: ^10.0.0
+  cloud_firestore: ^4.15.5
+  get_storage: ^2.1.1
+  path_provider: ^2.1.2
 
 # The following adds the Cupertino Icons font to your application.
 # Use with the CupertinoIcons class for iOS style icons.
@@ -97,6 +105,7 @@ flutter:
 
   assets:
     - assets/healthcare.png
+    - assets/google_logo.png
 
   fonts:
     - family: Montserrat
@@ -119,7 +128,7 @@ flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "assets/healthcare.png"
-  min_sdk_android: 21
+  min_sdk_android: 23
   adaptive_icon_background: "#000000"
   adaptive_icon_foreground: "assets/healthcare.png"
   remove_alpha_ios: true

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:Vital_Monitor/views/health_monitor_page.dart';
+import 'package:Vital_Monitor/controllers/user_controller.dart';
 
 class DemoPage extends StatelessWidget {
   DemoPage({super.key});
@@ -19,7 +20,14 @@ class DemoPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final userController = Get.find<UserController>();
+
     return Scaffold(
+      appBar: AppBar(
+        title: Text('Welcome, ${userController.username}'),
+        backgroundColor: const Color(0xFF2C2C2C),
+        elevation: 0,
+      ),
       backgroundColor: Colors.black,
       body: Container(
         width: double.infinity,

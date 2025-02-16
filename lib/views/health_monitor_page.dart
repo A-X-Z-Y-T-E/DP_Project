@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:Vital_Monitor/controllers/user_controller.dart';
 
 class HealthMonitorPage extends StatelessWidget {
   final String deviceName;
@@ -12,7 +13,7 @@ class HealthMonitorPage extends StatelessWidget {
   final String bloodSugar;
 
   const HealthMonitorPage({
-    Key? key,
+    super.key,
     required this.deviceName,
     required this.deviceId,
     this.bpm = '--',
@@ -20,10 +21,12 @@ class HealthMonitorPage extends StatelessWidget {
     this.temperature = '--',
     this.bloodPressure = '--/--',
     this.bloodSugar = '--',
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
+    final userController = Get.find<UserController>();
+
     return Scaffold(
       backgroundColor: const Color(0xFF14141A), // Dark background color
       appBar: AppBar(
@@ -95,6 +98,14 @@ class HealthMonitorPage extends StatelessWidget {
             child: Column(
               children: [
                 const SizedBox(height: 20),
+                Text(
+                  'Welcome, ${userController.username}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
                 // BPM Circle and Graph
                 Stack(
                   alignment: Alignment.center,
