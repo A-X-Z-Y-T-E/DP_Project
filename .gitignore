@@ -48,3 +48,28 @@ app.*.map.json
 # Android
 /android/
 assets/
+
+# Secrets and API keys
+/lib/firebase_options.dart
+/android/app/google-services.json
+.env
+*.jks
+*.keystore
+key.properties
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# iOS
+/ios/Pods/
+/ios/*.mode1v3
+/ios/*.mode2v3
+/ios/*.moved-aside
+/ios/*.pbxuser
+/ios/*.perspectivev3
+/ios/Flutter/App.framework
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/flutter_export_environment.sh

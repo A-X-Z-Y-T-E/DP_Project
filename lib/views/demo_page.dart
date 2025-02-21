@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:Vital_Monitor/views/health_monitor_page.dart';
 import 'package:Vital_Monitor/controllers/user_controller.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:Vital_Monitor/views/health_history_page.dart';
 
 class DemoPage extends StatelessWidget {
   DemoPage({super.key});
@@ -18,13 +20,102 @@ class DemoPage extends StatelessWidget {
   final TextEditingController sugarController =
       TextEditingController(text: '95');
 
+  final _db = FirebaseFirestore.instance;
+  final userController = Get.find<UserController>();
+
+  Future<void> _saveReading(String type, double value) async {
+    try {
+      await _db
+          .collection('users')
+          .doc(userController.username.value)
+          .collection('readings')
+          .add({
+        'type': type,
+        'value': value,
+        'timestamp': DateTime.now(),
+      });
+      debugPrint('Reading saved successfully');
+    } catch (e) {
+      debugPrint('Error saving reading: $e');
+    }
+  }
+
+  Future<void> _saveAllReadings() async {
+    try {
+      await _db
+          .collection('users')
+          .doc(userController.username.value)
+          .collection('readings')
+          .add({
+        'heartRate': double.parse(bpmController.text),
+        'spo2': double.parse(spo2Controller.text),
+        'temperature': double.parse(tempController.text),
+        'systolic': double.parse(systolicController.text),
+        'diastolic': double.parse(diastolicController.text),
+        'bloodSugar': double.parse(sugarController.text),
+        'timestamp': DateTime.now(),
+      });
+      debugPrint('All readings saved successfully');
+    } catch (e) {
+      debugPrint('Error saving readings: $e');
+    }
+  }
+
+  Future<void> _saveHealthData() async {
+    try {
+      debugPrint('Attempting to save health data...');
+      debugPrint('Current username: ${userController.username.value}');
+
+      final data = {
+        'heartRate': double.parse(bpmController.text),
+        'spo2': double.parse(spo2Controller.text),
+        'temperature': double.parse(tempController.text),
+        'bloodPressure': {
+          'systolic': double.parse(systolicController.text),
+          'diastolic': double.parse(diastolicController.text),
+        },
+        'bloodSugar': double.parse(sugarController.text),
+        'timestamp': DateTime.now(),
+      };
+
+      debugPrint('Data to save: $data');
+
+      await _db
+          .collection('users')
+          .doc(userController.username.value)
+          .collection('health_readings')
+          .add(data);
+
+      debugPrint('Health data saved successfully!');
+
+      // Verify data was saved
+      final snapshot = await _db
+          .collection('users')
+          .doc(userController.username.value)
+          .collection('health_readings')
+          .orderBy('timestamp', descending: true)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        debugPrint('Latest saved data: ${snapshot.docs.first.data()}');
+      }
+    } catch (e) {
+      debugPrint('Error saving health data: $e');
+      // Show error to user
+      Get.snackbar(
+        'Error',
+        'Failed to save health data: $e',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final userController = Get.find<UserController>();
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Welcome, ${userController.username}'),
+        title: Text('Welcome, ${userController.username.value}'),
         backgroundColor: const Color(0xFF2C2C2C),
         elevation: 0,
       ),
@@ -277,7 +368,8 @@ class DemoPage extends StatelessWidget {
                       const SizedBox(height: 20),
                       // Health Monitor
                       InkWell(
-                        onTap: () {
+                        onTap: () async {
+                          await _saveHealthData();
                           Get.to(() => HealthMonitorPage(
                                 deviceName: 'Demo Device',
                                 deviceId: 'DEMO-001',
@@ -387,6 +479,37 @@ class DemoPage extends StatelessWidget {
                               color: const Color(0xFF00E676),
                             ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Get.to(() => HealthHistoryPage()),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white.withAlpha(20),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.history, color: Colors.blue),
+                              const SizedBox(width: 8),
+                              Text(
+                                'VIEW HISTORY',
+                                style: TextStyle(
+                                  fontFamily: 'Montserrat',
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white.withAlpha(220),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:Vital_Monitor/views/home_page.dart';
 import 'package:Vital_Monitor/controllers/user_controller.dart';
+import 'package:Vital_Monitor/services/auth.dart';
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -82,21 +83,11 @@ class _LoginState extends State<Login> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    onPressed: () async {
+                    onPressed: () {
                       if (_formKey.currentState!.validate()) {
-                        setState(() => isLoading = true);
-                        try {
-                          final username = _usernameController.text.trim();
-                          final userController = Get.find<UserController>();
-                          userController.login(username);
-                          Get.offAll(() => const HomePage());
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error: $e')),
-                          );
-                        } finally {
-                          setState(() => isLoading = false);
-                        }
+                        final userController = Get.find<UserController>();
+                        userController.login(_usernameController.text.trim());
+                        Get.offAll(() => const HomePage());
                       }
                     },
                     child: const Text(
@@ -105,6 +96,49 @@ class _LoginState extends State<Login> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 20),
+                const Text('OR', style: TextStyle(color: Colors.grey)),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: Image.asset(
+                      'assets/google_logo.png',
+                      height: 24,
+                    ),
+                    label: const Text('Sign in with Google'),
+                    onPressed: () async {
+                      setState(() => isLoading = true);
+                      try {
+                        final user = await signInWithGoogle();
+                        if (user != null) {
+                          final userController = Get.find<UserController>();
+                          userController.login(user.displayName ?? 'User');
+                          Get.offAll(() => const HomePage());
+                        }
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error: $e')),
+                        );
+                      } finally {
+                        setState(() => isLoading = false);
+                      }
+                    },
+                  ),
+                ),
+                if (isLoading)
+                  const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(),
+                  ),
               ],
             ),
           ),
