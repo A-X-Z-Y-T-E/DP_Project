@@ -47,9 +47,12 @@ class BluetoothScanPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton(
-                        onPressed: () => controller.scanDevices(),
+                        onPressed: controller.isScanning
+                            ? controller.stopScan
+                            : controller.startScan,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
+                          backgroundColor:
+                              controller.isScanning ? Colors.red : Colors.blue,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 32,
                             vertical: 16,
@@ -58,9 +61,9 @@ class BluetoothScanPage extends StatelessWidget {
                             borderRadius: BorderRadius.circular(30),
                           ),
                         ),
-                        child: const Text(
-                          'SCAN DEVICES',
-                          style: TextStyle(
+                        child: Text(
+                          controller.isScanning ? 'STOP SCAN' : 'SCAN DEVICES',
+                          style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
