@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:Vital_Monitor/controllers/bluetooth_controller.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:Vital_Monitor/views/health_monitor_page.dart';
+import 'package:Vital_Monitor/views/health_history_page.dart';
 
 class DeviceDetailsPage extends StatefulWidget {
   final BluetoothDevice device;
@@ -27,9 +30,11 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
     _tabController =
         TabController(length: 3, vsync: this); // PROFILE, DETAILS and LOG tabs
     // Connect to device if not already connected
-    if (controller.connectedDevice?.id != widget.device.id) {
+    if (controller.connectedDevice?.remoteId != widget.device.remoteId) {
       controller.connectToDevice(widget.device);
     }
+    // Start health monitoring after connection
+    controller.startHealthMonitoring();
     // Start periodic RSSI updates
     _startRssiUpdates();
   }
@@ -50,8 +55,15 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
 
   @override
   void dispose() {
+    // Stop RSSI updates
     _tabController.dispose();
     textController.dispose();
+
+    // If we're navigating away from this page, ensure device is properly disconnected
+    if (mounted) {
+      controller.disconnectDevice();
+    }
+
     super.dispose();
   }
 
@@ -136,13 +148,13 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
           );
         }
 
-        return Column(
-          children: [
-            _buildStatusCard(),
-            const SizedBox(height: 8),
-            _buildServicesSection(),
-            Expanded(
-              child: Column(
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              _buildStatusCard(),
+              const SizedBox(height: 8),
+              _buildServicesSection(),
+              Column(
                 children: [
                   TabBar(
                     controller: _tabController,
@@ -155,7 +167,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                     unselectedLabelColor: Colors.white70,
                     indicatorColor: Colors.blue,
                   ),
-                  Expanded(
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * 1.2,
                     child: TabBarView(
                       controller: _tabController,
                       children: [
@@ -167,8 +180,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                   ),
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         );
       }),
     );
@@ -273,7 +286,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
 
   Widget _buildServicesSection() {
     return Container(
-      height: 120,
+      height: 180, // Reduced from 220 to 180
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -310,7 +323,48 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4), // Reduced from 8 to 4
+          // Navigation Buttons
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Get.to(() => HealthMonitorPage(
+                            deviceName: widget.device.platformName,
+                            deviceId: widget.device.remoteId.str,
+                            spo2: '98',
+                            temperature: '37.2',
+                            bloodPressure: '120/80',
+                            bloodSugar: '95',
+                          ));
+                    },
+                    icon: const Icon(Icons.monitor_heart),
+                    label: const Text('Health Monitor'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => Get.to(() => const HealthHistoryPage()),
+                    icon: const Icon(Icons.history),
+                    label: const Text('Health History'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4), // Reduced from 8 to 4
           Expanded(
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
@@ -324,22 +378,20 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
 
                 // Skip non-P2P services if you only want to show P2P
                 if (!isP2PService) {
-                  return const SizedBox
-                      .shrink(); // Return empty widget for non-P2P services
+                  return const SizedBox.shrink();
                 }
 
                 return GestureDetector(
                   onTap: () {
-                    // Switch to profile tab when P2P service is tapped
                     _tabController.animateTo(0);
-                    // Setup button listener for the selected service
                     _setupButtonListener(service);
                   },
                   child: Container(
                     width: 120,
-                    height: 80, // Reduced height
+                    height: 70, // Reduced from 80 to 70
                     margin: const EdgeInsets.symmetric(
-                        horizontal: 4, vertical: 4), // Reduced margin
+                        horizontal: 4,
+                        vertical: 2), // Reduced vertical margin from 4 to 2
                     decoration: BoxDecoration(
                       color: const Color(0xFF2C2C2C),
                       borderRadius: BorderRadius.circular(12),
@@ -349,7 +401,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                       ),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.all(4.0), // Reduced padding
+                      padding: const EdgeInsets.all(4.0),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -357,9 +409,9 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                           Icon(
                             Icons.settings_ethernet,
                             color: Colors.blue,
-                            size: 24, // Smaller icon
+                            size: 24,
                           ),
-                          const SizedBox(height: 4), // Reduced spacing
+                          const SizedBox(height: 2), // Reduced from 4 to 2
                           Flexible(
                             child: Text(
                               'P2P Server',
@@ -382,7 +434,9 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
             ),
           ),
           const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            padding: EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 2.0), // Reduced vertical padding from 4 to 2
             child: Text(
               'Scroll to see more services',
               style: TextStyle(
@@ -398,147 +452,272 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
   }
 
   Widget _buildProfileTab() {
-    // Check if P2P service is available
-    bool hasP2PService = controller.hasP2PService();
-
-    if (!hasP2PService) {
-      return const Center(
-        child: Text(
-          'P2P service not available on this device',
-          style: TextStyle(color: Colors.white70),
-        ),
-      );
-    }
-
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'P2P Server',
+            'Heart Rate Monitor',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'FE40',
-            style: TextStyle(
-              color: Colors.blue,
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Is Primary',
-            style: TextStyle(
-              color: Colors.blue,
-              fontSize: 14,
-            ),
-          ),
           const SizedBox(height: 16),
-          const Text(
-            'Application P2P server',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+          Container(
+            height: 300, // Increased from 200 to 300
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 8), // Adjusted padding
+            decoration: BoxDecoration(
+              color: const Color(
+                  0xFF1C2433), // Darker blue background to match image
+              borderRadius: BorderRadius.circular(12),
             ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Icon(Icons.notifications_none,
-                  color: Colors.grey, size: 30),
-              const SizedBox(width: 16),
-              const Text(
-                'No alarm received',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
+            child: Obx(() {
+              if (controller.heartRateHistory.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'Waiting for heart rate data...',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                );
+              }
+              return LineChart(
+                LineChartData(
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    horizontalInterval: 1,
+                    getDrawingHorizontalLine: (value) {
+                      return FlLine(
+                        color: Colors.white10,
+                        strokeWidth: 1,
+                      );
+                    },
+                  ),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 1,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            value.toInt().toString(),
+                            style: const TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    rightTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  minX: 0,
+                  maxX: (controller.heartRateHistory.length - 1).toDouble(),
+                  minY: 65, // Set minimum to show better scale
+                  maxY: 75, // Set maximum to show better scale
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots:
+                          controller.heartRateHistory.asMap().entries.map((e) {
+                        return FlSpot(e.key.toDouble(), e.value.toDouble());
+                      }).toList(),
+                      isCurved: true,
+                      color: Colors.red,
+                      barWidth: 3,
+                      dotData: FlDotData(
+                        show: true,
+                        getDotPainter: (spot, percent, barData, index) {
+                          return FlDotCirclePainter(
+                            radius: 4,
+                            color: Colors.red,
+                            strokeWidth: 2,
+                            strokeColor: Colors.white,
+                          );
+                        },
+                      ),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: Colors.red.withOpacity(0.1),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+              );
+            }),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Icon(Icons.lightbulb_outline, color: Colors.grey, size: 30),
-              const SizedBox(width: 16),
-              Switch(
-                value: ledState,
-                onChanged: (value) {
-                  _toggleLed();
-                },
-                activeColor: Colors.blue,
-              ),
-              Text(
-                ledState ? 'LED ON' : 'LED OFF',
-                style: TextStyle(
-                  color: ledState ? Colors.blue : Colors.white70,
-                  fontSize: 14,
-                ),
-              ),
+              Obx(() => _buildMetricCard(
+                    icon: Icons.favorite,
+                    value: '${controller.heartRate}',
+                    unit: 'BPM',
+                    color: Colors.red,
+                  )),
+              Obx(() => _buildMetricCard(
+                    icon: Icons.local_fire_department,
+                    value: '${controller.calories}',
+                    unit: 'KCAL',
+                    color: const Color(0xFF00E5FF), // Changed to cyan color
+                  )),
             ],
           ),
           const SizedBox(height: 24),
           const Text(
-            'Activity Log',
+            'Calories Burned',
             style: TextStyle(
               color: Colors.white,
-              fontSize: 16,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2C2C2C),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: logs.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No activity yet',
-                        style: TextStyle(color: Colors.white70),
+          const SizedBox(height: 16),
+          Container(
+            height: 300, // Increased from 200 to 300
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 8), // Adjusted padding
+            decoration: BoxDecoration(
+              color: const Color(
+                  0xFF1C2433), // Darker blue background to match image
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Obx(() {
+              if (controller.calorieHistory.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'Waiting for calorie data...',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                );
+              }
+              return LineChart(
+                LineChartData(
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    horizontalInterval: 1,
+                    getDrawingHorizontalLine: (value) {
+                      return FlLine(
+                        color: Colors.white10,
+                        strokeWidth: 1,
+                      );
+                    },
+                  ),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 1,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            value.toInt().toString(),
+                            style: const TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12,
+                            ),
+                          );
+                        },
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: logs.length,
-                      reverse: true,
-                      itemBuilder: (context, index) {
-                        final reversedIndex = logs.length - 1 - index;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${reversedIndex + 1}. ',
-                                style: const TextStyle(
-                                  color: Colors.blue,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  logs[reversedIndex],
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
                     ),
+                    rightTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  minX: 0,
+                  maxX: (controller.calorieHistory.length - 1).toDouble(),
+                  minY: 10, // Set minimum to show better scale
+                  maxY: 17, // Set maximum to show better scale
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: controller.calorieHistory.asMap().entries.map((e) {
+                        return FlSpot(e.key.toDouble(), e.value.toDouble());
+                      }).toList(),
+                      isCurved: true,
+                      color: const Color(0xFF00E5FF), // Changed to cyan color
+                      barWidth: 3,
+                      dotData: FlDotData(
+                        show: true,
+                        getDotPainter: (spot, percent, barData, index) {
+                          return FlDotCirclePainter(
+                            radius: 4,
+                            color: const Color(0xFF00E5FF),
+                            strokeWidth: 2,
+                            strokeColor: Colors.white,
+                          );
+                        },
+                      ),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: const Color(0xFF00E5FF).withOpacity(0.1),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricCard({
+    required IconData icon,
+    required String value,
+    required String unit,
+    required Color color,
+  }) {
+    return Container(
+      width: MediaQuery.of(context).size.width * 0.43,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withOpacity(0.5),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            unit,
+            style: TextStyle(
+              color: color.withOpacity(0.7),
+              fontSize: 12,
             ),
           ),
         ],
@@ -705,64 +884,6 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
     }
   }
 
-  Future<void> _toggleLed() async {
-    try {
-      // Find P2P service
-      final service = controller.services.firstWhere(
-        (s) => s.uuid == controller.p2pServiceUuid,
-        orElse: () => throw Exception('P2P service not found'),
-      );
-
-      // Find LED characteristic
-      final ledChar = service.characteristics.firstWhere(
-        (c) => c.uuid == controller.ledCharUuid,
-        orElse: () => throw Exception('LED characteristic not found'),
-      );
-
-      // Check if the characteristic supports write
-      if (!ledChar.properties.write &&
-          !ledChar.properties.writeWithoutResponse) {
-        setState(() {
-          logs.add(
-              'Error: LED characteristic does not support write operations');
-        });
-        Get.snackbar(
-          'Write Not Supported',
-          'This LED characteristic does not support write operations',
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
-        return;
-      }
-
-      // Toggle LED state
-      setState(() {
-        ledState = !ledState;
-      });
-
-      // Write value to turn LED on/off
-      if (ledChar.properties.writeWithoutResponse) {
-        await ledChar.write([ledState ? 0x01 : 0x00], withoutResponse: true);
-      } else {
-        await ledChar.write([ledState ? 0x01 : 0x00]);
-      }
-
-      setState(() {
-        logs.add('LED turned ${ledState ? 'ON' : 'OFF'}');
-      });
-    } catch (e) {
-      setState(() {
-        logs.add('Error toggling LED: $e');
-      });
-      Get.snackbar(
-        'LED Control Error',
-        e.toString(),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
-    }
-  }
-
   void _readAllCharacteristics() async {
     for (var characteristic in controller.characteristics) {
       if (characteristic.properties.read) {
@@ -816,6 +937,10 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
   }
 
   void _debugPrintServicesAndCharacteristics() {
+    setState(() {
+      logs.add('Printing BLE services to console...');
+    });
+
     for (var service in controller.services) {
       print('Service: ${service.uuid}');
       for (var char in service.characteristics) {

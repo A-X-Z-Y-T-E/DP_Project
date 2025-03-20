@@ -6,6 +6,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/material.dart';
 import 'package:Vital_Monitor/views/device_details_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:Vital_Monitor/controllers/user_controller.dart';
 
 class BluetoothController extends GetxController {
   // Observable variables
@@ -18,6 +20,13 @@ class BluetoothController extends GetxController {
   final _deviceState =
       Rx<BluetoothConnectionState>(BluetoothConnectionState.disconnected);
 
+  // Health data observables
+  final _heartRate = 0.obs;
+  final _calories = 0.obs;
+  final _heartRateHistory = <int>[].obs;
+  final _calorieHistory = <int>[].obs;
+  final _timestamps = <DateTime>[].obs;
+
   // Getters
   List<ScanResult> get scanResults => _scanResults;
   BluetoothDevice? get connectedDevice => _connectedDevice.value;
@@ -26,6 +35,13 @@ class BluetoothController extends GetxController {
   List<BluetoothCharacteristic> get characteristics => _characteristics;
   List<BluetoothService> get services => _services;
   BluetoothConnectionState get deviceState => _deviceState.value;
+
+  // Health data getters
+  int get heartRate => _heartRate.value;
+  int get calories => _calories.value;
+  List<int> get heartRateHistory => _heartRateHistory;
+  List<int> get calorieHistory => _calorieHistory;
+  List<DateTime> get timestamps => _timestamps;
 
   // Subscriptions
   StreamSubscription<List<ScanResult>>? _scanSubscription;
@@ -37,6 +53,15 @@ class BluetoothController extends GetxController {
   final ledCharUuid = Guid('0000fe41-8e22-4541-9d4c-21edae82ed19');
   // Button characteristic UUID
   final buttonCharUuid = Guid('0000fe42-8e22-4541-9d4c-21edae82ed19');
+
+  // Service UUIDs
+  final heartRateServiceUuid = Guid('0000180d-0000-1000-8000-00805f9b34fb');
+  final heartRateCharUuid = Guid('00002a37-0000-1000-8000-00805f9b34fb');
+  final calorieCharUuid = Guid('00002a3f-0000-1000-8000-00805f9b34fb');
+
+  // Firebase instance
+  final _db = FirebaseFirestore.instance;
+  final userController = Get.find<UserController>();
 
   @override
   void onInit() {
@@ -52,6 +77,9 @@ class BluetoothController extends GetxController {
   void onClose() {
     _scanSubscription?.cancel();
     _stateSubscription?.cancel();
+    _heartRateHistory.clear();
+    _calorieHistory.clear();
+    _timestamps.clear();
     super.onClose();
   }
 
@@ -365,6 +393,24 @@ class BluetoothController extends GetxController {
   Future<void> disconnectDevice() async {
     try {
       if (_connectedDevice.value != null) {
+        // Cancel all notifications and subscriptions
+        for (var service in _services) {
+          for (var characteristic in service.characteristics) {
+            if (characteristic.properties.notify ||
+                characteristic.properties.indicate) {
+              await characteristic.setNotifyValue(false);
+            }
+          }
+        }
+
+        // Clear all histories and reset values
+        _heartRate.value = 0;
+        _calories.value = 0;
+        _heartRateHistory.clear();
+        _calorieHistory.clear();
+        _timestamps.clear();
+
+        // Disconnect the device
         await _connectedDevice.value!.disconnect();
         _connectedDevice.value = null;
         _characteristics.clear();
@@ -563,5 +609,96 @@ class BluetoothController extends GetxController {
   // Method to check if device has P2P service
   bool hasP2PService() {
     return _services.any((s) => s.uuid == p2pServiceUuid);
+  }
+
+  Future<void> startHealthMonitoring() async {
+    try {
+      final service = _services.firstWhere(
+        (s) => s.uuid == heartRateServiceUuid,
+        orElse: () => throw Exception('Heart Rate service not found'),
+      );
+
+      // Find heart rate characteristic
+      final heartRateChar = service.characteristics.firstWhere(
+        (c) => c.uuid == heartRateCharUuid,
+        orElse: () => throw Exception('Heart Rate characteristic not found'),
+      );
+
+      // Subscribe to heart rate notifications
+      await heartRateChar.setNotifyValue(true);
+      heartRateChar.lastValueStream.listen((value) {
+        if (value.isNotEmpty) {
+          final hr =
+              value[1]; // Heart rate value is typically in the second byte
+          _heartRate.value = hr;
+          if (_heartRateHistory.length >= 20) {
+            _heartRateHistory.removeAt(0);
+          }
+          _heartRateHistory.add(hr);
+          _timestamps.add(DateTime.now());
+
+          // Store in Firestore
+          _saveHealthData(hr, _calories.value);
+        }
+      });
+
+      // Try to find calorie characteristic, but don't throw if not found
+      try {
+        final calorieChar = service.characteristics.firstWhere(
+          (c) => c.uuid == calorieCharUuid,
+        );
+
+        await calorieChar.setNotifyValue(true);
+        calorieChar.lastValueStream.listen((value) {
+          if (value.isNotEmpty) {
+            final cal = value[0];
+            if (_calorieHistory.length >= 20) {
+              _calorieHistory.removeAt(0);
+            }
+            _calories.value = cal;
+            _calorieHistory.add(cal);
+          }
+        });
+      } catch (e) {
+        print('Calorie monitoring not available: $e');
+        // Set default calorie values
+        if (_calorieHistory.isEmpty) {
+          _calories.value = 0;
+          _calorieHistory.add(0);
+        }
+      }
+    } catch (e) {
+      print('Error starting health monitoring: $e');
+      Get.snackbar(
+        'Error',
+        'Failed to start health monitoring: $e',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  Future<void> _saveHealthData(int heartRate, int calories) async {
+    try {
+      await _db
+          .collection('users')
+          .doc(userController.username.value)
+          .collection('health_readings')
+          .add({
+        'heartRate': heartRate,
+        'spo2': 98, // Default value, update when available
+        'temperature': 37.2, // Default value, update when available
+        'bloodPressure': {
+          'systolic': 120, // Default value, update when available
+          'diastolic': 80, // Default value, update when available
+        },
+        'bloodSugar': 95, // Default value, update when available
+        'calories': calories,
+        'timestamp': Timestamp.now(),
+      });
+      print('Health data saved successfully to Firestore');
+    } catch (e) {
+      print('Error saving to Firestore: $e');
+    }
   }
 }

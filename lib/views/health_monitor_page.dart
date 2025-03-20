@@ -2,26 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:Vital_Monitor/controllers/user_controller.dart';
+import 'package:Vital_Monitor/controllers/bluetooth_controller.dart';
 
 class HealthMonitorPage extends StatelessWidget {
   final String deviceName;
   final String deviceId;
-  final String bpm;
   final String spo2;
   final String temperature;
   final String bloodPressure;
   final String bloodSugar;
 
-  const HealthMonitorPage({
+  HealthMonitorPage({
     super.key,
     required this.deviceName,
     required this.deviceId,
-    this.bpm = '--',
     this.spo2 = '--',
     this.temperature = '--',
     this.bloodPressure = '--/--',
     this.bloodSugar = '--',
   });
+
+  final BluetoothController bluetoothController =
+      Get.find<BluetoothController>();
 
   @override
   Widget build(BuildContext context) {
@@ -113,30 +115,28 @@ class HealthMonitorPage extends StatelessWidget {
                     // Graph
                     SizedBox(
                       height: 150,
-                      child: LineChart(
-                        LineChartData(
-                          gridData: const FlGridData(show: false),
-                          titlesData: const FlTitlesData(show: false),
-                          borderData: FlBorderData(show: false),
-                          lineBarsData: [
-                            LineChartBarData(
-                              spots: const [
-                                FlSpot(0, 1),
-                                FlSpot(2, 1.2),
-                                FlSpot(4, 0.8),
-                                FlSpot(6, 1.1),
-                                FlSpot(8, 0.9),
-                                FlSpot(10, 1),
+                      child: Obx(() => LineChart(
+                            LineChartData(
+                              gridData: const FlGridData(show: false),
+                              titlesData: const FlTitlesData(show: false),
+                              borderData: FlBorderData(show: false),
+                              lineBarsData: [
+                                LineChartBarData(
+                                  spots: bluetoothController.heartRateHistory
+                                      .asMap()
+                                      .entries
+                                      .map((e) => FlSpot(
+                                          e.key.toDouble(), e.value.toDouble()))
+                                      .toList(),
+                                  isCurved: true,
+                                  color: const Color(0xFF007AFF),
+                                  barWidth: 2,
+                                  dotData: const FlDotData(show: false),
+                                  belowBarData: BarAreaData(show: false),
+                                ),
                               ],
-                              isCurved: true,
-                              color: const Color(0xFF007AFF),
-                              barWidth: 2,
-                              dotData: const FlDotData(show: false),
-                              belowBarData: BarAreaData(show: false),
                             ),
-                          ],
-                        ),
-                      ),
+                          )),
                     ),
                     // BPM Circle
                     Container(
@@ -163,15 +163,15 @@ class HealthMonitorPage extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            bpm,
-                            style: const TextStyle(
-                              fontFamily: 'Montserrat',
-                              fontSize: 36,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
+                          Obx(() => Text(
+                                '${bluetoothController.heartRate}',
+                                style: const TextStyle(
+                                  fontFamily: 'Montserrat',
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              )),
                           const Text(
                             'BPM',
                             style: TextStyle(
@@ -245,7 +245,7 @@ class HealthMonitorPage extends StatelessWidget {
                           Expanded(
                             child: _buildMetricCard(
                               title: 'RHR',
-                              value: bpm,
+                              value: '${bluetoothController.heartRate}',
                               unit: 'bpm',
                               range: 'within 44 - 53',
                               icon: Icons.favorite,

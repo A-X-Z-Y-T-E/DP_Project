@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:Vital_Monitor/views/demo_page.dart';
 import 'package:Vital_Monitor/views/bluetooth_scan_page.dart';
 import 'package:Vital_Monitor/services/auth.dart';
 import 'package:Vital_Monitor/views/login.dart';
 import 'package:Vital_Monitor/controllers/user_controller.dart';
+import 'package:Vital_Monitor/views/health_history_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -40,19 +40,9 @@ class HomePage extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildButton(
-                title: 'Bluetooth Scan',
-                icon: Icons.bluetooth_searching,
-                color: Colors.blue,
-                onPressed: () => Get.to(() => const BluetoothScanPage()),
-              ),
+              _buildBluetoothButton(),
               const SizedBox(height: 20),
-              _buildButton(
-                title: 'Demo Mode',
-                icon: Icons.devices,
-                color: Colors.green,
-                onPressed: () => Get.to(() => DemoPage()),
-              ),
+              _buildHealthHistoryButton(),
             ],
           ),
         ),
@@ -60,43 +50,114 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildButton({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
+  Widget _buildBluetoothButton() {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
         color: const Color(0xFF2C2C2C),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: color.withAlpha(51),
+          color: Colors.blue.withAlpha(51),
           width: 2,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onPressed,
+          onTap: () => Get.to(() => const BluetoothScanPage()),
           borderRadius: BorderRadius.circular(20),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+            padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  icon,
-                  size: 48,
-                  color: color,
+                const Icon(
+                  Icons.bluetooth_searching,
+                  size: 64,
+                  color: Colors.blue,
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  title,
+                const SizedBox(height: 16),
+                const Text(
+                  'Connect to Device',
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: color,
+                    color: Colors.blue,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Scan for available STM devices',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.blue.withOpacity(0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHealthHistoryButton() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.green.withAlpha(51),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => Get.to(() => const HealthHistoryPage()),
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.history,
+                  size: 64,
+                  color: Colors.green,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Health History',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'View your health records',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.green.withOpacity(0.7),
                   ),
                 ),
               ],

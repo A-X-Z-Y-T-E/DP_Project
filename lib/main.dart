@@ -14,13 +14,14 @@ Future<void> main() async {
   await GetStorage.init();
 
   try {
-    if (!Firebase.apps.isNotEmpty) {
+    // Check if Firebase is already initialized
+    if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
     }
   } catch (e) {
-    debugPrint('Firebase init error: $e');
+    debugPrint('Firebase initialization error: $e');
   }
 
   // Initialize user controller
