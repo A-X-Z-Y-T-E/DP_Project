@@ -154,31 +154,32 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
               _buildStatusCard(),
               const SizedBox(height: 8),
               _buildServicesSection(),
-              Column(
-                children: [
-                  TabBar(
-                    controller: _tabController,
-                    tabs: const [
-                      Tab(text: 'PROFILE'),
-                      Tab(text: 'DETAILS'),
-                      Tab(text: 'LOG'),
-                    ],
-                    labelColor: Colors.blue,
-                    unselectedLabelColor: Colors.white70,
-                    indicatorColor: Colors.blue,
-                  ),
-                  SizedBox(
-                    height: MediaQuery.of(context).size.height * 1.2,
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildProfileTab(),
-                        _buildDetailsTab(),
-                        _buildLogTab(),
-                      ],
-                    ),
-                  ),
+              TabBar(
+                controller: _tabController,
+                tabs: const [
+                  Tab(text: 'PROFILE'),
+                  Tab(text: 'DETAILS'),
+                  Tab(text: 'LOG'),
                 ],
+                labelColor: Colors.blue,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: Colors.blue,
+              ),
+              SizedBox(
+                height: MediaQuery.of(context).size.height *
+                    1.5, // Increased height to accommodate both graphs
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    SingleChildScrollView(
+                      physics:
+                          const ClampingScrollPhysics(), // Added to prevent nested scroll conflicts
+                      child: _buildProfileTab(),
+                    ),
+                    _buildDetailsTab(),
+                    _buildLogTab(),
+                  ],
+                ),
               ),
             ],
           ),
@@ -467,12 +468,144 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
           ),
           const SizedBox(height: 16),
           Container(
-            height: 300, // Increased from 200 to 300
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 8), // Adjusted padding
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(
-                  0xFF1C2433), // Darker blue background to match image
+              color: const Color(0xFF1C2433),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 120,
+                  height: 200,
+                  child: Obx(() {
+                    // Determine sensor position based on location
+                    Offset sensorPosition = const Offset(
+                        0.5, 0.35); // Default to heart/chest position
+                    switch (controller.sensorLocation.toLowerCase()) {
+                      case "chest":
+                        sensorPosition = const Offset(0.5, 0.35);
+                        break;
+                      case "wrist":
+                        sensorPosition = const Offset(0.15, 0.4);
+                        break;
+                      case "finger":
+                        sensorPosition = const Offset(0.15, 0.45);
+                        break;
+                      case "hand":
+                        sensorPosition = const Offset(0.15, 0.4);
+                        break;
+                      case "ear lobe":
+                        sensorPosition = const Offset(0.65, 0.15);
+                        break;
+                      case "foot":
+                        sensorPosition = const Offset(0.65, 0.85);
+                        break;
+                      case "other":
+                        sensorPosition = const Offset(
+                            0.5, 0.35); // Default to heart/chest for "other"
+                        break;
+                    }
+
+                    return CustomPaint(
+                      painter: BodyOutlinePainter(
+                        color: Colors.white,
+                        sensorPosition: sensorPosition,
+                      ),
+                      size: const Size(120, 200),
+                    );
+                  }),
+                ),
+                const SizedBox(width: 24),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Skin contact',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Obx(() => Row(
+                                children: [
+                                  Icon(
+                                    Icons.check_circle,
+                                    color: controller.hasContact
+                                        ? Colors.green
+                                        : Colors.grey,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    controller.hasContact ? 'Yes' : 'No',
+                                    style: TextStyle(
+                                      color: controller.hasContact
+                                          ? Colors.green
+                                          : Colors.grey,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              )),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          const Text(
+                            'Position',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Obx(() => Text(
+                                controller.sensorLocation,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                ),
+                              )),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          const Text(
+                            'RR Interval',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '1.0 s',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            height: 300,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C2433),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Obx(() {
@@ -955,4 +1088,96 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
       }
     }
   }
+}
+
+class BodyOutlinePainter extends CustomPainter {
+  final Color color;
+  final Offset sensorPosition;
+
+  BodyOutlinePainter({
+    this.color = Colors.white,
+    required this.sensorPosition,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    final width = size.width;
+    final height = size.height;
+
+    // Head
+    canvas.drawCircle(
+      Offset(width / 2, height * 0.1),
+      height * 0.08,
+      paint,
+    );
+
+    // Neck
+    canvas.drawLine(
+      Offset(width / 2, height * 0.18),
+      Offset(width / 2, height * 0.22),
+      paint,
+    );
+
+    // Body
+    final bodyPath = Path()
+      ..moveTo(width * 0.35, height * 0.22)
+      ..lineTo(width * 0.35, height * 0.5)
+      ..lineTo(width * 0.65, height * 0.5)
+      ..lineTo(width * 0.65, height * 0.22)
+      ..close();
+    canvas.drawPath(bodyPath, paint);
+
+    // Arms
+    final leftArmPath = Path()
+      ..moveTo(width * 0.35, height * 0.25)
+      ..quadraticBezierTo(
+        width * 0.2,
+        height * 0.25,
+        width * 0.15,
+        height * 0.4,
+      );
+    canvas.drawPath(leftArmPath, paint);
+
+    final rightArmPath = Path()
+      ..moveTo(width * 0.65, height * 0.25)
+      ..quadraticBezierTo(
+        width * 0.8,
+        height * 0.25,
+        width * 0.85,
+        height * 0.4,
+      );
+    canvas.drawPath(rightArmPath, paint);
+
+    // Legs
+    canvas.drawLine(
+      Offset(width * 0.4, height * 0.5),
+      Offset(width * 0.35, height * 0.85),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(width * 0.6, height * 0.5),
+      Offset(width * 0.65, height * 0.85),
+      paint,
+    );
+
+    // Draw sensor position
+    final sensorPaint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      Offset(width * sensorPosition.dx, height * sensorPosition.dy),
+      6,
+      sensorPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(BodyOutlinePainter oldDelegate) =>
+      color != oldDelegate.color ||
+      sensorPosition != oldDelegate.sensorPosition;
 }

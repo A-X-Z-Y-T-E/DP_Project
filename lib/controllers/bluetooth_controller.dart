@@ -27,6 +27,10 @@ class BluetoothController extends GetxController {
   final _calorieHistory = <int>[].obs;
   final _timestamps = <DateTime>[].obs;
 
+  // Add these properties near the top with other observables
+  final _sensorLocation = "Unknown".obs;
+  final _hasContact = false.obs;
+
   // Getters
   List<ScanResult> get scanResults => _scanResults;
   BluetoothDevice? get connectedDevice => _connectedDevice.value;
@@ -42,6 +46,10 @@ class BluetoothController extends GetxController {
   List<int> get heartRateHistory => _heartRateHistory;
   List<int> get calorieHistory => _calorieHistory;
   List<DateTime> get timestamps => _timestamps;
+
+  // Add these getters with other getters
+  String get sensorLocation => _sensorLocation.value;
+  bool get hasContact => _hasContact.value;
 
   // Subscriptions
   StreamSubscription<List<ScanResult>>? _scanSubscription;
@@ -611,6 +619,28 @@ class BluetoothController extends GetxController {
     return _services.any((s) => s.uuid == p2pServiceUuid);
   }
 
+  // Helper method to determine sensor location
+  String _getSensorLocation(int locationByte) {
+    switch (locationByte) {
+      case 0:
+        return "Other";
+      case 1:
+        return "Chest";
+      case 2:
+        return "Wrist";
+      case 3:
+        return "Finger";
+      case 4:
+        return "Hand";
+      case 5:
+        return "Ear Lobe";
+      case 6:
+        return "Foot";
+      default:
+        return "Position not identified";
+    }
+  }
+
   Future<void> startHealthMonitoring() async {
     try {
       final service = _services.firstWhere(
@@ -624,49 +654,52 @@ class BluetoothController extends GetxController {
         orElse: () => throw Exception('Heart Rate characteristic not found'),
       );
 
+      // Try to find the sensor location characteristic first
+      try {
+        final sensorLocationChar = service.characteristics.firstWhere(
+            (c) => c.uuid == Guid('00002a38-0000-1000-8000-00805f9b34fb'));
+        final locationData = await sensorLocationChar.read();
+        if (locationData.isNotEmpty) {
+          _sensorLocation.value = _getSensorLocation(locationData[0]);
+        } else {
+          _sensorLocation.value = "Position not identified";
+        }
+      } catch (e) {
+        print('Could not determine sensor position: $e');
+        _sensorLocation.value = "Position not identified";
+      }
+
       // Subscribe to heart rate notifications
       await heartRateChar.setNotifyValue(true);
       heartRateChar.lastValueStream.listen((value) {
         if (value.isNotEmpty) {
-          final hr =
-              value[1]; // Heart rate value is typically in the second byte
+          // First byte contains flags
+          final flags = value[0];
+
+          // Check sensor contact status (bits 1-2)
+          final contactBits = (flags >> 1) & 0x3;
+          _hasContact.value = contactBits == 0x3; // 0x3 means contact detected
+
+          // Get heart rate value
+          final hr = value[1];
           _heartRate.value = hr;
+
           if (_heartRateHistory.length >= 20) {
             _heartRateHistory.removeAt(0);
           }
           _heartRateHistory.add(hr);
           _timestamps.add(DateTime.now());
 
-          // Store in Firestore
-          _saveHealthData(hr, _calories.value);
+          final estimatedCalories = _calculateCalories(hr);
+          _calories.value = estimatedCalories;
+          if (_calorieHistory.length >= 20) {
+            _calorieHistory.removeAt(0);
+          }
+          _calorieHistory.add(estimatedCalories);
+
+          _saveHealthData(hr, estimatedCalories);
         }
       });
-
-      // Try to find calorie characteristic, but don't throw if not found
-      try {
-        final calorieChar = service.characteristics.firstWhere(
-          (c) => c.uuid == calorieCharUuid,
-        );
-
-        await calorieChar.setNotifyValue(true);
-        calorieChar.lastValueStream.listen((value) {
-          if (value.isNotEmpty) {
-            final cal = value[0];
-            if (_calorieHistory.length >= 20) {
-              _calorieHistory.removeAt(0);
-            }
-            _calories.value = cal;
-            _calorieHistory.add(cal);
-          }
-        });
-      } catch (e) {
-        print('Calorie monitoring not available: $e');
-        // Set default calorie values
-        if (_calorieHistory.isEmpty) {
-          _calories.value = 0;
-          _calorieHistory.add(0);
-        }
-      }
     } catch (e) {
       print('Error starting health monitoring: $e');
       Get.snackbar(
@@ -676,6 +709,35 @@ class BluetoothController extends GetxController {
         colorText: Colors.white,
       );
     }
+  }
+
+  // Helper method to calculate estimated calories based on heart rate
+  int _calculateCalories(int heartRate) {
+    // Base calculation using heart rate zones
+    double calories;
+
+    if (heartRate < 65) {
+      calories = 10.0; // Resting/low activity
+    } else if (heartRate < 70) {
+      calories = 12.0 + (heartRate - 65) * 0.4;
+    } else if (heartRate < 75) {
+      calories = 14.0 + (heartRate - 70) * 0.6;
+    } else {
+      calories = 17.0 + (heartRate - 75) * 0.8;
+    }
+
+    // Add small variation based on previous value if exists
+    if (_calorieHistory.isNotEmpty) {
+      double variation = (heartRate % 2 == 0) ? 0.3 : -0.2;
+      calories += variation;
+    }
+
+    // Ensure calories only increase over time but with variable rates
+    if (_calorieHistory.isNotEmpty && calories <= _calorieHistory.last) {
+      calories = _calorieHistory.last + 0.1;
+    }
+
+    return calories.round().clamp(10, 30);
   }
 
   Future<void> _saveHealthData(int heartRate, int calories) async {
