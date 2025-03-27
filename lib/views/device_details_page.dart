@@ -622,7 +622,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: false,
-                    horizontalInterval: 1,
+                    horizontalInterval: 10,
                     getDrawingHorizontalLine: (value) {
                       return FlLine(
                         color: Colors.white10,
@@ -635,7 +635,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
-                        interval: 1,
+                        interval: 10,
                         getTitlesWidget: (value, meta) {
                           return Text(
                             value.toInt().toString(),
@@ -743,7 +743,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: false,
-                    horizontalInterval: 1,
+                    horizontalInterval: 5, // Show grid lines every 5 calories
                     getDrawingHorizontalLine: (value) {
                       return FlLine(
                         color: Colors.white10,
@@ -756,7 +756,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
-                        interval: 1,
+                        interval: 5, // Show labels every 5 calories
                         getTitlesWidget: (value, meta) {
                           return Text(
                             value.toInt().toString(),
@@ -781,15 +781,15 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                   borderData: FlBorderData(show: false),
                   minX: 0,
                   maxX: (controller.calorieHistory.length - 1).toDouble(),
-                  minY: 10, // Set minimum to show better scale
-                  maxY: 17, // Set maximum to show better scale
+                  minY: 70, // Set minimum to 70 calories
+                  maxY: 90, // Set maximum to 90 calories
                   lineBarsData: [
                     LineChartBarData(
                       spots: controller.calorieHistory.asMap().entries.map((e) {
                         return FlSpot(e.key.toDouble(), e.value.toDouble());
                       }).toList(),
                       isCurved: true,
-                      color: const Color(0xFF00E5FF), // Changed to cyan color
+                      color: const Color(0xFF00E5FF),
                       barWidth: 3,
                       dotData: FlDotData(
                         show: true,
