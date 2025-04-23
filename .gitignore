@@ -179,3 +179,7 @@ web/firebase-messaging-sw.js
 *.dylib
 *.dll
 *.a
+*.jpg
+*.tex
+*.pdf
+*.synctex.gz

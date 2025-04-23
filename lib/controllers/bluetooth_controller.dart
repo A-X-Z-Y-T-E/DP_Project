@@ -420,7 +420,12 @@ class BluetoothController extends GetxController {
 
         // Disconnect the device
         await _connectedDevice.value!.disconnect();
-        _connectedDevice.value = null;
+
+        // We're keeping the device reference but updating the state
+        // instead of setting connectedDevice to null
+        _deviceState.value = BluetoothConnectionState.disconnected;
+
+        // Clear services and characteristics
         _characteristics.clear();
         _services.clear();
 
@@ -680,7 +685,7 @@ class BluetoothController extends GetxController {
           final contactBits = (flags >> 1) & 0x3;
           _hasContact.value = contactBits == 0x3; // 0x3 means contact detected
 
-          // Get heart rate value from second byte
+          // Get heart rate value
           final hr = value[1];
           _heartRate.value = hr;
 
@@ -690,28 +695,14 @@ class BluetoothController extends GetxController {
           _heartRateHistory.add(hr);
           _timestamps.add(DateTime.now());
 
-          // Parse calorie data from the characteristic value
-          // Format: 1f48005200 where 52 is the calorie value (4th byte)
-          String hexValue =
-              value.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
-          print('Received hex value: $hexValue');
-
-          if (value.length >= 4) {
-            // The calorie value is in the fourth byte (index 3)
-            int calorieValue =
-                value[3]; // Get the fourth byte (52 in the example)
-            print('Raw calorie value: $calorieValue');
-
-            // Store the raw value
-            _calories.value = calorieValue;
-            if (_calorieHistory.length >= 20) {
-              _calorieHistory.removeAt(0);
-            }
-            _calorieHistory.add(calorieValue);
-            print('Current calorie history: $_calorieHistory');
+          final estimatedCalories = _calculateCalories(hr);
+          _calories.value = estimatedCalories;
+          if (_calorieHistory.length >= 20) {
+            _calorieHistory.removeAt(0);
           }
+          _calorieHistory.add(estimatedCalories);
 
-          _saveHealthData(_heartRate.value, _calories.value);
+          _saveHealthData(hr, estimatedCalories);
         }
       });
     } catch (e) {
@@ -723,6 +714,35 @@ class BluetoothController extends GetxController {
         colorText: Colors.white,
       );
     }
+  }
+
+  // Helper method to calculate estimated calories based on heart rate
+  int _calculateCalories(int heartRate) {
+    // Base calculation using heart rate zones
+    double calories;
+
+    if (heartRate < 65) {
+      calories = 10.0; // Resting/low activity
+    } else if (heartRate < 70) {
+      calories = 12.0 + (heartRate - 65) * 0.4;
+    } else if (heartRate < 75) {
+      calories = 14.0 + (heartRate - 70) * 0.6;
+    } else {
+      calories = 17.0 + (heartRate - 75) * 0.8;
+    }
+
+    // Add small variation based on previous value if exists
+    if (_calorieHistory.isNotEmpty) {
+      double variation = (heartRate % 2 == 0) ? 0.3 : -0.2;
+      calories += variation;
+    }
+
+    // Ensure calories only increase over time but with variable rates
+    if (_calorieHistory.isNotEmpty && calories <= _calorieHistory.last) {
+      calories = _calorieHistory.last + 0.1;
+    }
+
+    return calories.round().clamp(10, 30);
   }
 
   Future<void> _saveHealthData(int heartRate, int calories) async {
