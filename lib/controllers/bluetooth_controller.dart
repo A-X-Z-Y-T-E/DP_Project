@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
@@ -41,6 +41,12 @@ class BluetoothController extends GetxController {
   // Add pulse waveform data property
   final _pulseWaveformData = <int>[].obs;
   List<int> get pulseWaveformData => _pulseWaveformData;
+
+  // Add these properties to track scan performance and status
+  final _scanStartTime = DateTime.now().obs;
+  final _isTimeoutDialogShown = false.obs;
+  final _scannedDevicesCount = 0.obs;
+  int get scannedDevicesCount => _scannedDevicesCount.value;
 
   // Getters
   List<ScanResult> get scanResults => _scanResults;
@@ -99,10 +105,6 @@ class BluetoothController extends GetxController {
       _scanResults.value = results;
       update();
     });
-
-    // Initialize with sample pulse data for development
-    _pulseWaveformData.value = List.generate(56, (index) =>
-        (128 + (40 * sin(index * 0.2))).toInt());
 
     // Start a timer to store health data every 5 minutes
     _storeDataTimer = Timer.periodic(const Duration(minutes: 5), (_) {
@@ -269,59 +271,116 @@ class BluetoothController extends GetxController {
     try {
       _scanResults.clear();
       _isScanning.value = true;
+      _scanStartTime.value = DateTime.now();
+      _scannedDevicesCount.value = 0;
+      _isTimeoutDialogShown.value = false;
 
-      // Use safe dialog method
-      await _showDialog(
-        PopScope(
-          canPop: false,
-          child: Dialog(
-            backgroundColor: const Color(0xFF2C2C2C),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(
-                    color: Colors.blue,
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Scanning for STM devices...',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  TextButton(
-                    onPressed: () {
-                      stopScan();
-                      Get.back();
-                    },
-                    child: const Text('CANCEL',
-                        style: TextStyle(color: Colors.white)),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        barrierDismissible: false,
-      );
-
-      // Start scan with filters for STM devices
-      await FlutterBluePlus.startScan(
+      // Start the scan before showing dialog to prevent delays
+      FlutterBluePlus.startScan(
         timeout: const Duration(seconds: 15),
         withServices: [], // Add specific service UUIDs if known
       );
 
-      // Wait for scan to complete
-      await Future.delayed(const Duration(seconds: 4));
+      // Set up a listener to track the number of devices found
+      _scanSubscription?.cancel();
+      _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
+        _scanResults.value = results;
+        _scannedDevicesCount.value = results.length;
+        update();
+      });
 
-      // Close dialog
-      if (Get.isDialogOpen ?? false) {
-        Get.back();
-      }
+      // Use safe dialog method - improved with progress tracking
+      await _showDialog(
+        PopScope(
+          canPop: false,
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              // Setup a periodic timer to update the dialog
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (context.mounted) setState(() {});
+              });
+
+              // Calculate elapsed time
+              final elapsedSeconds = DateTime.now().difference(_scanStartTime.value).inSeconds;
+              
+              // Check if scan is taking too long with no results
+              if (elapsedSeconds > 8 && _scanResults.isEmpty && !_isTimeoutDialogShown.value) {
+                _isTimeoutDialogShown.value = true;
+                
+                // Schedule showing a helpful message
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _showScanningTipDialog();
+                });
+              }
+              
+              return Dialog(
+                backgroundColor: const Color(0xFF2C2C2C),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(
+                        color: Colors.blue,
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Scanning for devices...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Found ${_scannedDevicesCount.value} device${_scannedDevicesCount.value == 1 ? "" : "s"}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Scan time: $elapsedSeconds seconds',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              stopScan();
+                              Get.back();
+                            },
+                            child: const Text('CANCEL',
+                                style: TextStyle(color: Colors.white)),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              // Keep the results, but close the dialog
+                              Get.back();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                            ),
+                            child: const Text('SHOW RESULTS'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+          ),
+        ),
+        barrierDismissible: false,
+      );
 
       _isScanning.value = false;
     } catch (e) {
@@ -331,6 +390,56 @@ class BluetoothController extends GetxController {
       }
       print('Scan Error: Failed to scan: $e');
     }
+  }
+
+  void _showScanningTipDialog() {
+    // Only show the dialog if we're still scanning and the scan dialog is open
+    if (!_isScanning.value || !(Get.isDialogOpen ?? false)) {
+      return;
+    }
+
+    Get.dialog(
+      AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text(
+          'Scanning Tips',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'If scanning is taking too long:',
+              style: TextStyle(color: Colors.white70),
+            ),
+            SizedBox(height: 8),
+            Text(
+              '• Make sure Bluetooth is turned on',
+              style: TextStyle(color: Colors.white70),
+            ),
+            Text(
+              '• Check that the device is powered on and nearby',
+              style: TextStyle(color: Colors.white70),
+            ),
+            Text(
+              '• Some devices only advertise periodically to save power',
+              style: TextStyle(color: Colors.white70),
+            ),
+            Text(
+              '• Try restarting your Bluetooth',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('GOT IT', style: TextStyle(color: Colors.blue)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> stopScan() async {
@@ -349,8 +458,12 @@ class BluetoothController extends GetxController {
       _isConnecting.value = true;
       _connectedDevice.value = device;
 
-      // Use safe dialog method
-      await _showDialog(
+      // Start connecting before showing dialog
+      // This fixes the issue where device only connects on "Cancel" press
+      final Future<void> connectionFuture = device.connect();
+
+      // Show dialog while connecting
+      _showDialog(
         PopScope(
           canPop: false,
           child: Dialog(
@@ -388,7 +501,8 @@ class BluetoothController extends GetxController {
         barrierDismissible: false,
       );
 
-      await device.connect();
+      // Wait for connection to complete
+      await connectionFuture;
 
       _stateSubscription?.cancel();
       _stateSubscription = device.state.listen((state) {
@@ -403,13 +517,16 @@ class BluetoothController extends GetxController {
       // Discover services
       await discoverServices();
 
+      // Delay a bit before closing the dialog to ensure connection is established
+      await Future.delayed(Duration(milliseconds: 300));
+      
       if (Get.isDialogOpen ?? false) {
         Get.back();
       }
 
       _isConnecting.value = false;
 
-      // Instead of showing a snackbar, navigate to the device details page
+      // Navigate to device details page
       Get.off(() => DeviceDetailsPage(device: device));
     } catch (e) {
       _isConnecting.value = false;
@@ -505,17 +622,93 @@ class BluetoothController extends GetxController {
     }
   }
 
+  // Updated waveform method to only process real data from characteristic 0010
+  void updatePulseWaveform(List<int> newData) {
+    // Only update if we have valid data
+    if (newData.isEmpty) return;
+    
+    print('Processing real data from 0010 characteristic: ${newData.length} bytes');
+
+    // Process the data based on actual hardware format
+    List<int> updatedData;
+    
+    // Different hardware might send data in different formats
+    if (newData.length % 4 == 0) {
+      // Format 1: Process 4-byte chunks (common for some specialized hardware)
+      final processedData = <int>[];
+      for (int i = 0; i < newData.length; i += 4) {
+        if (i + 3 < newData.length) {
+          // Properly parse 4-byte value according to your hardware's format
+          int value = (newData[i] << 24) | (newData[i+1] << 16) | 
+                     (newData[i+2] << 8) | newData[i+3];
+          processedData.add(value);
+          if (processedData.length >= 56) break;  // Limit data points
+        }
+      }
+      updatedData = processedData;
+    } 
+    else if (newData.length % 2 == 0) {
+      // Format 2: Process 2-byte chunks (common for heart rate/pulse data)
+      final processedData = <int>[];
+      for (int i = 0; i < newData.length; i += 2) {
+        if (i + 1 < newData.length) {
+          // Parse 2-byte value
+          int value = (newData[i] << 8) | newData[i+1];
+          processedData.add(value);
+          if (processedData.length >= 56) break;
+        }
+      }
+      updatedData = processedData;
+    }
+    else {
+      // Format 3: Process individual bytes (simplest format)
+      updatedData = newData.length > 56 ? newData.sublist(0, 56) : List<int>.from(newData);
+    }
+    
+    // Special case: If hardware sent just a few values, verify they're in usable range
+    if (updatedData.length < 10) {
+      // Check if values are very small (might need rescaling based on hardware)
+      int max = updatedData.isEmpty ? 0 : updatedData.reduce((a, b) => a > b ? a : b);
+      if (max < 5) {  // Extremely small values might need multiplication for visibility
+        print('Warning: Values from device are very small, may be hard to visualize');
+      }
+    }
+    
+    // Only update if the data is different to avoid unnecessary redraws
+    if (!_areListsEqual(_pulseWaveformData, updatedData) && updatedData.isNotEmpty) {
+      _pulseWaveformData.value = List<int>.from(updatedData);
+      // Log first few points for debugging
+      print('Updated pulse waveform with ${updatedData.length} real points from hardware. Sample: ${updatedData.take(5).toList()}');
+    }
+  }
+
+  bool _areListsEqual(RxList<int> list1, List<int> list2) {
+    if (list1.length != list2.length) return false;
+    for (int i = 0; i < list1.length; i++) {
+      if (list1[i] != list2[i]) return false;
+    }
+    return true;
+  }
+
+  // Add this method to stop any simulation that might be running
+  void stopSimulation() {
+    // This is just a placeholder since we no longer have a simulation function
+    // But we need this method to avoid the error in device_details_page.dart
+    print('Simulation already disabled - using only real device data');
+  }
+
   // Helper method to format characteristic values
   String formatCharacteristicValue(List<int> value, Guid uuid) {
     // Default format is hex
     String hexValue = value.map((e) => e.toRadixString(16).padLeft(2, '0').toUpperCase()).join('-');
 
-    // Special formatting for TX POWER LEVEL characteristic (Pulse data)
+    // Special formatting for TX POWER LEVEL characteristic (Pulse data) (0010)
     if (uuid.toString().toUpperCase().contains("00000010-0000-1000-8000-00805F9B34FB")) {
       // Process and store the pulse waveform data
       if (value.isNotEmpty) {
-        _pulseWaveformData.value = List<int>.from(value);
-        print('Received ${value.length} pulse waveform data points');
+        // Update the pulse waveform data efficiently with actual device data
+        updatePulseWaveform(value);
+        print('Received ${value.length} pulse waveform data points from TX Power Level (0010)');
       }
 
       // Format exactly like in the images with 0000-XXXX pattern for display

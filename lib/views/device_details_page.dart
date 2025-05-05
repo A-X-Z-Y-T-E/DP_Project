@@ -56,8 +56,88 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
     controller.startHealthMonitoring();
     // Start periodic RSSI updates
     _startRssiUpdates();
+    
+    // Stop any simulation that might be running - we want real data
+    controller.stopSimulation();
+
+    // Find and enable notifications for the 0010 characteristic to get real pulse waveform data
+    _enableTxPowerLevelNotifications();
   }
-  
+
+  void _enableTxPowerLevelNotifications() {
+    // Don't wait for a delay, try to enable notifications as soon as possible
+    Future.delayed(Duration(milliseconds: 500), () async {
+      try {
+        // Print all characteristics to help debug
+        print('Looking for 0010 characteristic among ${controller.characteristics.length} characteristics');
+        
+        bool found = false;
+        
+        // Find the characteristic with UUID containing 0010
+        for (var service in controller.services) {
+          for (var characteristic in service.characteristics) {
+            // Print all characteristics to help debug
+            print('Checking characteristic: ${characteristic.uuid}');
+            
+            if (characteristic.uuid.toString().toUpperCase().contains("00000010") || 
+                characteristic.uuid.toString().toUpperCase().contains("0010")) {
+              
+              _addLog('Found TX Power Level (0010) characteristic for pulse waveform data');
+              found = true;
+              
+              // Check if notifications are already enabled
+              if (characteristic.isNotifying) {
+                _addLog('Notifications already enabled for TX Power Level (0010)');
+              } else {
+                // Enable notifications
+                await characteristic.setNotifyValue(true);
+                _addLog('Enabled notifications for TX Power Level (0010) characteristic');
+              }
+              
+              // Read the characteristic immediately to get initial data
+              try {
+                final initialValue = await controller.readCharacteristic(characteristic);
+                _addLog('Read initial value from TX Power Level characteristic with ${initialValue.length} bytes');
+                
+                // Make sure the controller processes this initial value for the graph
+                controller.updatePulseWaveform(initialValue);
+              } catch (e) {
+                _addLog('Failed to read initial TX Power Level value: $e');
+              }
+              
+              // Set up subscription to lastValueStream to continuously get updates
+              characteristic.lastValueStream.listen((value) {
+                if (value.isNotEmpty) {
+                  _addLog('Received ${value.length} bytes from 0010 characteristic');
+                  controller.updatePulseWaveform(value);
+                }
+              });
+              
+              return; // Found and enabled
+            }
+          }
+        }
+        
+        if (!found) {
+          _addLog('TX Power Level (0010) characteristic not found');
+          
+          // If we didn't find the exact TX Power Level UUID, try to find any characteristic 
+          // that might be usable for waveform data
+          for (var service in controller.services) {
+            for (var characteristic in service.characteristics) {
+              if (characteristic.properties.notify || characteristic.properties.indicate) {
+                _addLog('Trying alternative characteristic for pulse data: ${characteristic.uuid}');
+                await characteristic.setNotifyValue(true);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        _addLog('Error enabling TX Power Level notifications: $e');
+      }
+    });
+  }
+
   // Helper method to add a log with timestamp
   void _addLog(String message) {
     setState(() {
@@ -653,169 +733,12 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
             ),
           ),
           const SizedBox(height: 16),
-          Container(
-            height: 300,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C2433),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: GetX<BluetoothController>(
-              builder: (controller) {
-                // Generate some sample HRV data if empty
-                if (controller.hrvHistory.isEmpty) {
-                  // Add sample data for testing
-                  if (controller.hrvHistory.isEmpty) {
-                    for (int i = 0; i < 10; i++) {
-                      controller.hrvHistory.add(40 + (i * 2));
-                    }
-                  }
-                  
-                  // Uncomment this for production and remove the sample data above
-                  /*
-                  return const Center(
-                    child: Text(
-                      'Waiting for HRV data...',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                  );
-                  */
-                }
-                return LineChart(
-                LineChartData(
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    horizontalInterval: 10,
-                    getDrawingHorizontalLine: (value) {
-                      return FlLine(
-                        color: Colors.white10,
-                        strokeWidth: 1,
-                      );
-                    },
-                  ),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        interval: 20,
-                        getTitlesWidget: (value, meta) {
-                          return Text(
-                            value.toInt().toString(),
-                            style: const TextStyle(
-                              color: Colors.white38,
-                              fontSize: 12,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    rightTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  minX: 0,
-                  maxX: (controller.hrvHistory.length - 1).toDouble(),
-                  minY: 20, // Set minimum to show better scale for HRV
-                  maxY: 80, // Set maximum to show better scale for HRV
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots:
-                          controller.hrvHistory.asMap().entries.map((e) {
-                        return FlSpot(e.key.toDouble(), e.value.toDouble());
-                      }).toList(),
-                      isCurved: true,
-                      color: Colors.orange,
-                      barWidth: 3,
-                      dotData: FlDotData(
-                        show: true,
-                        getDotPainter: (spot, percent, barData, index) {
-                          return FlDotCirclePainter(
-                            radius: 4,
-                            color: Colors.orange,
-                            strokeWidth: 2,
-                            strokeColor: Colors.white,
-                          );
-                        },
-                      ),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: Colors.orange.withOpacity(0.1),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              GetX<BluetoothController>(
-                builder: (controller) => _buildMetricCard(
-                  icon: Icons.monitor_heart,
-                  value: '${controller.hrv}',
-                  unit: 'ms',
-                  color: Colors.orange,
-                ),
-              ),
-            ],
+          const PulseWaveformChart(
+            height: 220,
+            lineColor: Colors.green,
+            title: 'Pulse Waveform Monitor',
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              GetX<BluetoothController>(
-                builder: (controller) => _buildMetricCard(
-                  icon: Icons.directions_walk,
-                  value: '${controller.steps}',
-                  unit: 'steps',
-                  color: Colors.green,
-                ),
-              ),
-              GetX<BluetoothController>(
-                builder: (controller) => _buildMetricCard(
-                  icon: Icons.thermostat,
-                  value: controller.skinTemperature.toStringAsFixed(1),
-                  unit: '°C',
-                  color: Colors.blue,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          GetX<BluetoothController>(
-            builder: (controller) => controller.fallDetected
-                ? Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.red, width: 1),
-                    ),
-                    child: Row(
-                      children: const [
-                        Icon(Icons.warning_amber_rounded, color: Colors.red),
-                        SizedBox(width: 8),
-                        Text(
-                          'Fall detected! Check on user.',
-                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  )
-                : const SizedBox(),
-          ),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -908,47 +831,6 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                 ),
                 const SizedBox(height: 16),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetricCard({
-    required IconData icon,
-    required String value,
-    required String unit,
-    required Color color,
-  }) {
-    return Container(
-      width: MediaQuery.of(context).size.width * 0.43,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: color.withOpacity(0.5),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          Text(
-            unit,
-            style: TextStyle(
-              color: color.withOpacity(0.7),
-              fontSize: 12,
             ),
           ),
         ],
@@ -1115,6 +997,267 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
       });
     }
     
+    if (isPulseCharacteristic) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+            Expanded(
+              child: Text(
+                _getCharacteristicName(characteristic.uuid),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () {
+                // Edit functionality could be added here
+              },
+              child: const Icon(
+                Icons.edit,
+                color: Colors.yellow,
+                size: 20,
+              ),
+            ),
+          ],
+        ),
+        Text(
+          characteristic.uuid.toString().toUpperCase(),
+          style: const TextStyle(
+            color: Colors.blue,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              if (characteristic.properties.read)
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      final value = await controller.readCharacteristic(characteristic);
+                      rxValues.value = value; // Update the value
+                      timestamp.value = DateTime.now();
+                      
+                      // Enhanced logging for characteristic reads
+                      final formattedValue = controller.formatCharacteristicValue(value, characteristic.uuid);
+                      final characteristicName = _getCharacteristicName(characteristic.uuid);
+                      
+                      // Format log message similar to the images - show full details in app logs
+                      String logMessage = 'Read value for characteristic(characteristic: {id: ${characteristic.uuid}, ' +
+                          'serviceID: ${characteristic.serviceUuid}, name: $characteristicName, value: $formattedValue})';
+                      
+                      _addLog(logMessage);
+                    } catch (e) {
+                      _addLog('Read error: $e');
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.yellow,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('READ'),
+                ),
+              if (characteristic.properties.read) 
+                const SizedBox(width: 8),
+              if (characteristic.properties.write || characteristic.properties.writeWithoutResponse)
+                ElevatedButton(
+                  onPressed: () {
+                    _showWriteDialog(characteristic);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.yellow,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('WRITE'),
+                ),
+              if ((characteristic.properties.write || characteristic.properties.writeWithoutResponse) && 
+                  (characteristic.properties.notify || characteristic.properties.indicate)) 
+                const SizedBox(width: 8),
+              if (characteristic.properties.notify || characteristic.properties.indicate)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Indicate',
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                    const SizedBox(width: 4),
+                    Switch(
+                      value: characteristic.isNotifying, // Track notification state
+                      onChanged: (value) async {
+                        try {
+                          await characteristic.setNotifyValue(value);
+                          // If we're turning off notifications, clear the stored value
+                          if (!value) {
+                            lastNotificationValues.remove(characteristic.uuid.toString());
+                          }
+                          _addLog(value 
+                            ? 'Notifications enabled for ${_getCharacteristicName(characteristic.uuid)}'
+                            : 'Notifications disabled for ${_getCharacteristicName(characteristic.uuid)}');
+                        } catch (e) {
+                          _addLog('Notification error: $e');
+                        }
+                      },
+                      activeColor: Colors.blue,
+                    ),
+                  ],
+                ),
+              if (characteristic.properties.notify)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(width: 16),
+                    const Text(
+                      'Notify',
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                    const SizedBox(width: 4),
+                    Switch(
+                      value: characteristic.isNotifying,
+                      onChanged: (value) async {
+                        try {
+                          await characteristic.setNotifyValue(value);
+                          _addLog(value 
+                            ? 'Notifications enabled for ${_getCharacteristicName(characteristic.uuid)}'
+                            : 'Notifications disabled for ${_getCharacteristicName(characteristic.uuid)}');
+                        } catch (e) {
+                          _addLog('Notification error: $e');
+                        }
+                      },
+                      activeColor: Colors.blue,
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Value',
+          style: TextStyle(
+            color: Colors.blue,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Obx(() {
+          String displayValue = rxValues.isNotEmpty 
+              ? controller.formatCharacteristicValue(rxValues, characteristic.uuid)
+              : '00';
+          
+          return Row(
+            children: [
+              Icon(rxValues.isEmpty ? Icons.play_arrow : Icons.expand_more, color: Colors.blue),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  displayValue,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontFamily: 'Courier',
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
+              ),
+            ],
+          );
+        }),
+        const SizedBox(height: 8),
+        const Text(
+          'Pulse Waveform',
+          style: TextStyle(
+            color: Colors.green,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.green.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.green.withOpacity(0.3))
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.info_outline, color: Colors.green, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: RichText(
+                  text: const TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'Live waveform visualization is available in the ',
+                        style: TextStyle(color: Colors.white70)
+                      ),
+                      TextSpan(
+                        text: 'PROFILE',
+                        style: TextStyle(
+                          color: Colors.green, 
+                          fontWeight: FontWeight.bold
+                        )
+                      ),
+                      TextSpan(
+                        text: ' tab',
+                        style: TextStyle(color: Colors.white70)
+                      ),
+                    ]
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Obx(() => Padding(
+          padding: const EdgeInsets.only(top: 8.0),
+          child: Text(
+            'Data points: ${controller.pulseWaveformData.length}',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+            ),
+          ),
+        )),
+        Obx(() => Text(
+          'Updated at ${_formatTime(timestamp.value)}',
+          style: const TextStyle(
+            color: Colors.blue,
+            fontSize: 12,
+          ),
+        )),
+        if (characteristic.descriptors.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          const Text(
+            'Descriptors',
+            style: TextStyle(
+              color: Colors.blue,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...characteristic.descriptors.map((descriptor) => 
+            _buildDescriptorItem(descriptor)
+          ).toList(),
+        ],
+        const SizedBox(height: 16),
+        const Divider(color: Colors.white24),
+      ],
+    );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1230,7 +1373,6 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                     ),
                   ],
                 ),
-              // Add notify label and switch
               if (characteristic.properties.notify)
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1269,63 +1411,31 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
           ),
         ),
         const SizedBox(height: 4),
-        
-        // Value display (standard display for most characteristics)
-        if (!isPulseCharacteristic)
-          Obx(() {
-            // Display the current value in the format matching the images
-            String displayValue = rxValues.isNotEmpty 
-                ? controller.formatCharacteristicValue(rxValues, characteristic.uuid)
-                : '00';
-            
-            return Row(
-              children: [
-                Icon(rxValues.isEmpty ? Icons.play_arrow : Icons.expand_more, color: Colors.blue),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    displayValue,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontFamily: 'Courier', // Use monospace font for better readability of hex values
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
-                  ),
-                ),
-              ],
-            );
-          }),
+        Obx(() {
+          // Display the current value in the format matching the images
+          String displayValue = rxValues.isNotEmpty 
+              ? controller.formatCharacteristicValue(rxValues, characteristic.uuid)
+              : '00';
           
-        // Special display for pulse waveform characteristic
-        if (isPulseCharacteristic) ...[
-          const SizedBox(height: 8),
-          const Text(
-            'Pulse Waveform',
-            style: TextStyle(
-              color: Colors.green,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Add pulse waveform chart
-          const PulseWaveformChart(
-            height: 200,
-            lineColor: Colors.green,
-          ),
-          const SizedBox(height: 8),
-          Obx(() => Text(
-            'Data points: ${controller.pulseWaveformData.length}',
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-            ),
-          )),
-        ],
-        
-        // ...existing code for timestamp and descriptors...
+          return Row(
+            children: [
+              Icon(rxValues.isEmpty ? Icons.play_arrow : Icons.expand_more, color: Colors.blue),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  displayValue,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontFamily: 'Courier', // Use monospace font for better readability of hex values
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
+              ),
+            ],
+          );
+        }),
         Obx(() => Text(
           'Updated at ${_formatTime(timestamp.value)}',
           style: const TextStyle(
