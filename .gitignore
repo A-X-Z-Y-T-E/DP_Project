@@ -183,3 +183,9 @@ web/firebase-messaging-sw.js
 *.tex
 *.pdf
 *.synctex.gz
+
+# Development files to ignore
+lib/utils/fake_data_generator.dart
+lib/utils/generate_test_data.dart
+lib/views/fake_data_page.dart
+lib/views/waveform_view.dart

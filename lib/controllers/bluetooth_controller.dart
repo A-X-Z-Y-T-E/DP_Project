@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/material.dart';
 import 'package:Vital_Monitor/views/device_details_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:Vital_Monitor/controllers/user_controller.dart';
@@ -22,14 +24,23 @@ class BluetoothController extends GetxController {
 
   // Health data observables
   final _heartRate = 0.obs;
-  final _calories = 0.obs;
   final _heartRateHistory = <int>[].obs;
-  final _calorieHistory = <int>[].obs;
   final _timestamps = <DateTime>[].obs;
 
-  // Add these properties near the top with other observables
+  // New health metrics
+  final _hrv = 0.obs;
+  final _hrvHistory = <int>[].obs;
+  final _steps = 0.obs;
+  final _fallDetected = false.obs;
+  final _skinTemperature = 0.0.obs;
+
+  // Sensor information
   final _sensorLocation = "Unknown".obs;
   final _hasContact = false.obs;
+
+  // Add pulse waveform data property
+  final _pulseWaveformData = <int>[].obs;
+  List<int> get pulseWaveformData => _pulseWaveformData;
 
   // Getters
   List<ScanResult> get scanResults => _scanResults;
@@ -42,12 +53,17 @@ class BluetoothController extends GetxController {
 
   // Health data getters
   int get heartRate => _heartRate.value;
-  int get calories => _calories.value;
   List<int> get heartRateHistory => _heartRateHistory;
-  List<int> get calorieHistory => _calorieHistory;
   List<DateTime> get timestamps => _timestamps;
 
-  // Add these getters with other getters
+  // New health metrics getters
+  int get hrv => _hrv.value;
+  List<int> get hrvHistory => _hrvHistory;
+  int get steps => _steps.value;
+  bool get fallDetected => _fallDetected.value;
+  double get skinTemperature => _skinTemperature.value;
+
+  // Sensor information getters
   String get sensorLocation => _sensorLocation.value;
   bool get hasContact => _hasContact.value;
 
@@ -61,15 +77,19 @@ class BluetoothController extends GetxController {
   final ledCharUuid = Guid('0000fe41-8e22-4541-9d4c-21edae82ed19');
   // Button characteristic UUID
   final buttonCharUuid = Guid('0000fe42-8e22-4541-9d4c-21edae82ed19');
+  // TX Power Level characteristic UUID
+  final txPowerLevelCharUuid = Guid('00000010-0000-1000-8000-00805f9b34fb');
 
   // Service UUIDs
   final heartRateServiceUuid = Guid('0000180d-0000-1000-8000-00805f9b34fb');
   final heartRateCharUuid = Guid('00002a37-0000-1000-8000-00805f9b34fb');
-  final calorieCharUuid = Guid('00002a3f-0000-1000-8000-00805f9b34fb');
 
-  // Firebase instance
-  final _db = FirebaseFirestore.instance;
-  final userController = Get.find<UserController>();
+  // Firestore instance
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final UserController _userController = Get.find<UserController>();
+
+  // Timer for periodic health data storage
+  Timer? _storeDataTimer;
 
   @override
   void onInit() {
@@ -79,23 +99,48 @@ class BluetoothController extends GetxController {
       _scanResults.value = results;
       update();
     });
+
+    // Initialize with sample pulse data for development
+    _pulseWaveformData.value = List.generate(56, (index) =>
+        (128 + (40 * sin(index * 0.2))).toInt());
+
+    // Start a timer to store health data every 5 minutes
+    _storeDataTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (isDeviceConnected()) {
+        storeHealthData();
+      }
+    });
   }
 
   @override
   void onClose() {
     _scanSubscription?.cancel();
     _stateSubscription?.cancel();
+    _storeDataTimer?.cancel();
     _heartRateHistory.clear();
-    _calorieHistory.clear();
     _timestamps.clear();
     super.onClose();
+  }
+
+  // Helper method to show dialogs safely using post-frame callback
+  Future<T?> _showDialog<T>(Widget dialog, {bool barrierDismissible = true}) {
+    Completer<T?> completer = Completer<T?>();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final result = await Get.dialog<T>(
+        dialog,
+        barrierDismissible: barrierDismissible
+      );
+      completer.complete(result);
+    });
+
+    return completer.future;
   }
 
   Future<bool> checkPermissions() async {
     // Check if Bluetooth is supported
     if (!await FlutterBluePlus.isSupported) {
-      Get.snackbar('Error', 'Bluetooth not supported on this device',
-          backgroundColor: Colors.red, colorText: Colors.white);
+      print('Error: Bluetooth not supported on this device');
       return false;
     }
 
@@ -110,7 +155,7 @@ class BluetoothController extends GetxController {
 
     // If permissions were previously denied, show settings dialog
     if (locationStatus.isDenied || bluetoothStatus.isDenied) {
-      final bool shouldRequest = await Get.dialog<bool>(
+      final bool shouldRequest = await _showDialog<bool>(
             AlertDialog(
               backgroundColor: const Color(0xFF2C2C2C),
               title: const Text('Permissions Required',
@@ -145,17 +190,8 @@ class BluetoothController extends GetxController {
       ].request();
 
       if (statuses.values.any((status) => !status.isGranted)) {
-        Get.snackbar(
-          'Permission Required',
-          'Please grant permissions in Settings',
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          mainButton: TextButton(
-            onPressed: () => openAppSettings(),
-            child:
-                const Text('SETTINGS', style: TextStyle(color: Colors.white)),
-          ),
-        );
+        print('Permission required: Please grant permissions in Settings');
+        await openAppSettings();
         return false;
       }
     }
@@ -166,7 +202,7 @@ class BluetoothController extends GetxController {
   Future<bool> _checkServicesEnabled() async {
     // Check if Location is enabled
     if (!await Permission.location.serviceStatus.isEnabled) {
-      Get.dialog(
+      _showDialog(
         AlertDialog(
           backgroundColor: const Color(0xFF2C2C2C),
           title: const Text('Location Required',
@@ -194,7 +230,7 @@ class BluetoothController extends GetxController {
 
     // Check if Bluetooth is enabled
     if (!await FlutterBluePlus.isOn) {
-      Get.dialog(
+      _showDialog(
         AlertDialog(
           backgroundColor: const Color(0xFF2C2C2C),
           title: const Text('Bluetooth Required',
@@ -234,8 +270,8 @@ class BluetoothController extends GetxController {
       _scanResults.clear();
       _isScanning.value = true;
 
-      // Show scanning dialog
-      Get.dialog(
+      // Use safe dialog method
+      await _showDialog(
         PopScope(
           canPop: false,
           child: Dialog(
@@ -277,8 +313,6 @@ class BluetoothController extends GetxController {
       await FlutterBluePlus.startScan(
         timeout: const Duration(seconds: 15),
         withServices: [], // Add specific service UUIDs if known
-        // Filter for STM devices if needed
-        // scanMode: ScanMode.lowLatency,
       );
 
       // Wait for scan to complete
@@ -295,13 +329,7 @@ class BluetoothController extends GetxController {
       if (Get.isDialogOpen ?? false) {
         Get.back();
       }
-
-      Get.snackbar(
-        'Scan Error',
-        'Failed to scan: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      print('Scan Error: Failed to scan: $e');
     }
   }
 
@@ -321,8 +349,8 @@ class BluetoothController extends GetxController {
       _isConnecting.value = true;
       _connectedDevice.value = device;
 
-      // Show connecting dialog
-      Get.dialog(
+      // Use safe dialog method
+      await _showDialog(
         PopScope(
           canPop: false,
           child: Dialog(
@@ -388,13 +416,7 @@ class BluetoothController extends GetxController {
       if (Get.isDialogOpen ?? false) {
         Get.back();
       }
-
-      Get.snackbar(
-        'Connection Error',
-        'Failed to connect: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      print('Connection Error: Failed to connect: $e');
     }
   }
 
@@ -413,9 +435,7 @@ class BluetoothController extends GetxController {
 
         // Clear all histories and reset values
         _heartRate.value = 0;
-        _calories.value = 0;
         _heartRateHistory.clear();
-        _calorieHistory.clear();
         _timestamps.clear();
 
         // Disconnect the device
@@ -428,21 +448,9 @@ class BluetoothController extends GetxController {
         // Clear services and characteristics
         _characteristics.clear();
         _services.clear();
-
-        Get.snackbar(
-          'Disconnected',
-          'Device disconnected',
-          backgroundColor: const Color(0xFF2C2C2C),
-          colorText: Colors.white,
-        );
       }
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to disconnect: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      print('Error: Failed to disconnect: $e');
     }
   }
 
@@ -467,46 +475,83 @@ class BluetoothController extends GetxController {
     }
   }
 
-  Future<void> readCharacteristic(
+  Future<List<int>> readCharacteristic(
       BluetoothCharacteristic characteristic) async {
     try {
       List<int> value = await characteristic.read();
-      print('Read value: ${utf8.decode(value)}');
 
-      Get.snackbar(
-        'Read Value',
-        'Value: ${utf8.decode(value)}',
-        backgroundColor: const Color(0xFF2C2C2C),
-        colorText: Colors.white,
-      );
+      // Log the operation
+      String logEntry = 'Reading characteristic value{characteristic: {id: ${characteristic.uuid}, serviceID: ${characteristic.serviceUuid}, name: , value: }}';
+      print(logEntry);
+
+      // Convert the value to different formats for display
+      String hexValue = value.map((e) => e.toRadixString(16).padLeft(2, '0').toUpperCase()).join('-');
+
+      // For known characteristics, try to interpret the data appropriately
+      if (characteristic.uuid == heartRateCharUuid) {
+        if (value.isNotEmpty) {
+          int hr = value[1]; // For heart rate, usually the second byte contains the value
+          print('Heart Rate: $hr BPM');
+        }
+      }
+
+      print('Read value in hex: $hexValue');
+
+      // No snackbar, just return the value
+      return value;
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to read characteristic: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      print('Error reading characteristic: $e');
+      return [];
     }
+  }
+
+  // Helper method to format characteristic values
+  String formatCharacteristicValue(List<int> value, Guid uuid) {
+    // Default format is hex
+    String hexValue = value.map((e) => e.toRadixString(16).padLeft(2, '0').toUpperCase()).join('-');
+
+    // Special formatting for TX POWER LEVEL characteristic (Pulse data)
+    if (uuid.toString().toUpperCase().contains("00000010-0000-1000-8000-00805F9B34FB")) {
+      // Process and store the pulse waveform data
+      if (value.isNotEmpty) {
+        _pulseWaveformData.value = List<int>.from(value);
+        print('Received ${value.length} pulse waveform data points');
+      }
+
+      // Format exactly like in the images with 0000-XXXX pattern for display
+      return value.map((e) => "0000-${e.toRadixString(16).padLeft(4, '0').toUpperCase()}").join('-');
+    }
+
+    // For heart rate measurements
+    if (uuid == heartRateCharUuid && value.isNotEmpty) {
+      // First byte contains flags
+      final flags = value[0];
+      // Check heart rate value format (bit 0)
+      bool is16Bit = (flags & 0x1) == 0x1;
+
+      // Get heart rate value based on format flag
+      int hrValue;
+      if (is16Bit && value.length >= 3) {
+        hrValue = value[2] << 8 | value[1];
+      } else if (value.length >= 2) {
+        hrValue = value[1];
+      } else {
+        return "Invalid format";
+      }
+
+      return "$hrValue BPM";
+    }
+
+    return hexValue;
   }
 
   Future<void> writeCharacteristic(
       BluetoothCharacteristic characteristic, String data) async {
     try {
       await characteristic.write(utf8.encode(data));
-
-      Get.snackbar(
-        'Write Success',
-        'Data written to device',
-        backgroundColor: Colors.green.withOpacity(0.7),
-        colorText: Colors.white,
-      );
+      print('Data written to device: $data');
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to write to characteristic: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      print('Failed to write to characteristic: $e');
     }
   }
 
@@ -519,19 +564,9 @@ class BluetoothController extends GetxController {
         print('Notification: ${utf8.decode(value)}');
       });
 
-      Get.snackbar(
-        'Subscribed',
-        'Listening for notifications',
-        backgroundColor: const Color(0xFF2C2C2C),
-        colorText: Colors.white,
-      );
+      print('Subscribed to notifications for ${characteristic.uuid}');
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to subscribe: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      print('Failed to subscribe: $e');
     }
   }
 
@@ -558,19 +593,9 @@ class BluetoothController extends GetxController {
       // Write value to turn LED on/off
       await ledChar.write([on ? 0x01 : 0x00]);
 
-      Get.snackbar(
-        'LED Control',
-        on ? 'LED turned ON' : 'LED turned OFF',
-        backgroundColor: on ? Colors.green : Colors.grey,
-        colorText: Colors.white,
-      );
+      print('LED Control: LED turned ${on ? 'ON' : 'OFF'}');
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to control LED: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      print('Error: Failed to control LED: $e');
     }
   }
 
@@ -594,28 +619,13 @@ class BluetoothController extends GetxController {
 
       buttonChar.lastValueStream.listen((value) {
         if (value.isNotEmpty && value[0] == 0x01) {
-          Get.snackbar(
-            'Button Press',
-            'Button pressed on device',
-            backgroundColor: Colors.blue,
-            colorText: Colors.white,
-          );
+          print('Button Press: Button pressed on device');
         }
       });
 
-      Get.snackbar(
-        'Button Notifications',
-        'Listening for button presses',
-        backgroundColor: const Color(0xFF2C2C2C),
-        colorText: Colors.white,
-      );
+      print('Button Notifications: Listening for button presses');
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to listen for button press: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      print('Error: Failed to listen for button press: $e');
     }
   }
 
@@ -695,61 +705,19 @@ class BluetoothController extends GetxController {
           _heartRateHistory.add(hr);
           _timestamps.add(DateTime.now());
 
-          final estimatedCalories = _calculateCalories(hr);
-          _calories.value = estimatedCalories;
-          if (_calorieHistory.length >= 20) {
-            _calorieHistory.removeAt(0);
-          }
-          _calorieHistory.add(estimatedCalories);
-
-          _saveHealthData(hr, estimatedCalories);
+          _saveHealthData(hr);
         }
       });
     } catch (e) {
       print('Error starting health monitoring: $e');
-      Get.snackbar(
-        'Error',
-        'Failed to start health monitoring: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
     }
   }
 
-  // Helper method to calculate estimated calories based on heart rate
-  int _calculateCalories(int heartRate) {
-    // Base calculation using heart rate zones
-    double calories;
-
-    if (heartRate < 65) {
-      calories = 10.0; // Resting/low activity
-    } else if (heartRate < 70) {
-      calories = 12.0 + (heartRate - 65) * 0.4;
-    } else if (heartRate < 75) {
-      calories = 14.0 + (heartRate - 70) * 0.6;
-    } else {
-      calories = 17.0 + (heartRate - 75) * 0.8;
-    }
-
-    // Add small variation based on previous value if exists
-    if (_calorieHistory.isNotEmpty) {
-      double variation = (heartRate % 2 == 0) ? 0.3 : -0.2;
-      calories += variation;
-    }
-
-    // Ensure calories only increase over time but with variable rates
-    if (_calorieHistory.isNotEmpty && calories <= _calorieHistory.last) {
-      calories = _calorieHistory.last + 0.1;
-    }
-
-    return calories.round().clamp(10, 30);
-  }
-
-  Future<void> _saveHealthData(int heartRate, int calories) async {
+  Future<void> _saveHealthData(int heartRate) async {
     try {
       await _db
           .collection('users')
-          .doc(userController.username.value)
+          .doc(_userController.username.value)
           .collection('health_readings')
           .add({
         'heartRate': heartRate,
@@ -760,12 +728,44 @@ class BluetoothController extends GetxController {
           'diastolic': 80, // Default value, update when available
         },
         'bloodSugar': 95, // Default value, update when available
-        'calories': calories,
         'timestamp': Timestamp.now(),
       });
       print('Health data saved successfully to Firestore');
     } catch (e) {
       print('Error saving to Firestore: $e');
+    }
+  }
+
+  // Method to store health data in Firestore
+  Future<void> storeHealthData() async {
+    try {
+      // Skip if no user is logged in
+      if (_userController.username.value.isEmpty) {
+        print('No user logged in, skipping health data storage');
+        return;
+      }
+
+      // Create a health reading with default values for null fields
+      final healthReading = {
+        'timestamp': Timestamp.now(),
+        'hrv': _hrv.value, // Always include HRV (default is 0)
+        'steps': _steps.value, // Default is 0
+        'fallDetected': _fallDetected.value, // Default is false
+        'skinTemperature': _skinTemperature.value > 0 ? _skinTemperature.value : 36.5, // Default to normal if 0
+        'deviceId': _connectedDevice.value?.remoteId.str ?? 'unknown',
+        'deviceName': _connectedDevice.value?.platformName ?? 'Unknown Device',
+      };
+
+      // Store in Firestore
+      await _db
+          .collection('users')
+          .doc(_userController.username.value)
+          .collection('health_readings')
+          .add(healthReading);
+
+      print('Health data stored successfully');
+    } catch (e) {
+      print('Error storing health data: $e');
     }
   }
 }
