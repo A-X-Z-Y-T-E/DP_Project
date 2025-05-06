@@ -622,66 +622,63 @@ class BluetoothController extends GetxController {
     }
   }
 
-  // Updated waveform method to only process real data from characteristic 0010
+  // Modified to handle 4-byte chunks (224 bytes = 56 values)
   void updatePulseWaveform(List<int> newData) {
     // Only update if we have valid data
     if (newData.isEmpty) return;
     
     print('Processing real data from 0010 characteristic: ${newData.length} bytes');
 
-    // Process the data based on actual hardware format
-    List<int> updatedData;
+    // The STM toolbox format shows 224 bytes / 4 = 56 values (4 bytes per value)
+    final processedData = <int>[];
     
-    // Different hardware might send data in different formats
-    if (newData.length % 4 == 0) {
-      // Format 1: Process 4-byte chunks (common for some specialized hardware)
-      final processedData = <int>[];
-      for (int i = 0; i < newData.length; i += 4) {
-        if (i + 3 < newData.length) {
-          // Properly parse 4-byte value according to your hardware's format
-          int value = (newData[i] << 24) | (newData[i+1] << 16) | 
-                     (newData[i+2] << 8) | newData[i+3];
-          processedData.add(value);
-          if (processedData.length >= 56) break;  // Limit data points
-        }
+    // Process the data in 4-byte chunks to match STM toolbox format
+    for (int i = 0; i < newData.length; i += 4) {
+      if (i + 3 < newData.length) {
+        // Properly combine 4 bytes into a single 32-bit integer value
+        // Using big-endian format: first byte is most significant
+        int value = (newData[i] << 24) | (newData[i+1] << 16) | 
+                    (newData[i+2] << 8) | newData[i+3];
+        processedData.add(value);
       }
-      updatedData = processedData;
-    } 
-    else if (newData.length % 2 == 0) {
-      // Format 2: Process 2-byte chunks (common for heart rate/pulse data)
-      final processedData = <int>[];
-      for (int i = 0; i < newData.length; i += 2) {
-        if (i + 1 < newData.length) {
-          // Parse 2-byte value
-          int value = (newData[i] << 8) | newData[i+1];
-          processedData.add(value);
-          if (processedData.length >= 56) break;
-        }
-      }
-      updatedData = processedData;
-    }
-    else {
-      // Format 3: Process individual bytes (simplest format)
-      updatedData = newData.length > 56 ? newData.sublist(0, 56) : List<int>.from(newData);
     }
     
-    // Special case: If hardware sent just a few values, verify they're in usable range
-    if (updatedData.length < 10) {
-      // Check if values are very small (might need rescaling based on hardware)
-      int max = updatedData.isEmpty ? 0 : updatedData.reduce((a, b) => a > b ? a : b);
-      if (max < 5) {  // Extremely small values might need multiplication for visibility
-        print('Warning: Values from device are very small, may be hard to visualize');
-      }
+    // If we received fewer bytes than expected, fill with zeroes to ensure 56 values
+    while (processedData.length < 56) {
+      processedData.add(0);
+    }
+    
+    // If we have more than 56 values, trim the list to exactly 56 values
+    if (processedData.length > 56) {
+      processedData.length = 56;
+    }
+    
+    print('Processed ${processedData.length} values from ${newData.length} bytes');
+    
+    // Scale values to fit within chart range if needed
+    bool needsScaling = false;
+    int maxValue = 0;
+    
+    for (int value in processedData) {
+      if (value > maxValue) maxValue = value;
+      if (value > 200) needsScaling = true;
+    }
+    
+    List<int> scaledData = processedData;
+    if (needsScaling && maxValue > 0) {
+      double scaleFactor = 200.0 / maxValue;
+      scaledData = processedData.map((value) => (value * scaleFactor).toInt()).toList();
+      print('Values scaled by factor $scaleFactor to fit chart range');
     }
     
     // Only update if the data is different to avoid unnecessary redraws
-    if (!_areListsEqual(_pulseWaveformData, updatedData) && updatedData.isNotEmpty) {
-      _pulseWaveformData.value = List<int>.from(updatedData);
-      // Log first few points for debugging
-      print('Updated pulse waveform with ${updatedData.length} real points from hardware. Sample: ${updatedData.take(5).toList()}');
+    if (!_areListsEqual(_pulseWaveformData, scaledData)) {
+      _pulseWaveformData.value = List<int>.from(scaledData);
+      print('Updated pulse waveform with ${scaledData.length} data points');
     }
   }
 
+  // Helper method to check if two lists have the same content
   bool _areListsEqual(RxList<int> list1, List<int> list2) {
     if (list1.length != list2.length) return false;
     for (int i = 0; i < list1.length; i++) {
@@ -692,30 +689,73 @@ class BluetoothController extends GetxController {
 
   // Add this method to stop any simulation that might be running
   void stopSimulation() {
-    // This is just a placeholder since we no longer have a simulation function
-    // But we need this method to avoid the error in device_details_page.dart
-    print('Simulation already disabled - using only real device data');
+    // This is just a placeholder since we're using real device data now
+    // but needed to maintain compatibility with existing code
+    print('Real-time data mode active - using only hardware device data');
   }
 
-  // Helper method to format characteristic values
+  // Helper method to format characteristic values to match STM toolbox
   String formatCharacteristicValue(List<int> value, Guid uuid) {
-    // Default format is hex
-    String hexValue = value.map((e) => e.toRadixString(16).padLeft(2, '0').toUpperCase()).join('-');
-
     // Special formatting for TX POWER LEVEL characteristic (Pulse data) (0010)
     if (uuid.toString().toUpperCase().contains("00000010-0000-1000-8000-00805F9B34FB")) {
       // Process and store the pulse waveform data
       if (value.isNotEmpty) {
         // Update the pulse waveform data efficiently with actual device data
         updatePulseWaveform(value);
-        print('Received ${value.length} pulse waveform data points from TX Power Level (0010)');
+        
+        // Format the display string in 4-byte chunks to show the actual binary values
+        StringBuffer formattedValue = StringBuffer();
+        for (int i = 0; i < value.length; i += 4) {
+          if (i + 3 < value.length) {
+            // Combine 4 bytes to make a 32-bit value (4-byte format)
+            int combinedValue = (value[i] << 24) | (value[i+1] << 16) | 
+                               (value[i+2] << 8) | value[i+3];
+                               
+            // Format as 8-character hex value (representing 4 bytes)
+            String hexChunk = combinedValue.toRadixString(16).padLeft(8, '0').toUpperCase();
+            formattedValue.write(hexChunk);
+            
+            // Add a dash between values (except after the last one)
+            if (i + 4 < value.length) {
+              formattedValue.write('-');
+            }
+          }
+        }
+        
+        // Print to console for debugging/monitoring
+        print('0010 characteristic value (4-byte format): ${formattedValue.toString().substring(0, math.min(100, formattedValue.length))}...');
+        
+        return formattedValue.toString();
       }
-
-      // Format exactly like in the images with 0000-XXXX pattern for display
-      return value.map((e) => "0000-${e.toRadixString(16).padLeft(4, '0').toUpperCase()}").join('-');
+    } else {
+      // Format all other characteristics in 4-byte chunks as well for consistency
+      if (value.isNotEmpty) {
+        StringBuffer formattedValue = StringBuffer();
+        
+        for (int i = 0; i < value.length; i += 4) {
+          if (i + 3 < value.length) {
+            // Group into 4-byte chunks
+            int combinedValue = (value[i] << 24) | (value[i+1] << 16) | (value[i+2] << 8) | value[i+3];
+            String hexChunk = combinedValue.toRadixString(16).padLeft(8, '0').toUpperCase();
+            formattedValue.write(hexChunk);
+          } else {
+            // Remaining bytes (if not divisible by 4)
+            for (int j = i; j < value.length; j++) {
+              formattedValue.write(value[j].toRadixString(16).padLeft(2, '0').toUpperCase());
+            }
+          }
+          
+          // Add a dash between groups (except after the last one)
+          if (i + 4 < value.length) {
+            formattedValue.write('-');
+          }
+        }
+        
+        return formattedValue.toString();
+      }
     }
 
-    // For heart rate measurements
+    // For heart rate measurements with special formatting
     if (uuid == heartRateCharUuid && value.isNotEmpty) {
       // First byte contains flags
       final flags = value[0];
@@ -735,7 +775,13 @@ class BluetoothController extends GetxController {
       return "$hrValue BPM";
     }
 
-    return hexValue;
+    // If we got here and value is empty, return default
+    if (value.isEmpty) {
+      return "00";
+    }
+    
+    // This shouldn't happen with the new logic, but keeping as a fallback
+    return value.map((e) => e.toRadixString(16).padLeft(2, '0').toUpperCase()).join('-');
   }
 
   Future<void> writeCharacteristic(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'dart:math';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:Vital_Monitor/controllers/bluetooth_controller.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -65,75 +66,67 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
   }
 
   void _enableTxPowerLevelNotifications() {
-    // Don't wait for a delay, try to enable notifications as soon as possible
+    // Debug all characteristics to help find the correct one
+    print('Looking for pulse waveform characteristic (0010) with 224 bytes (56 values)');
+    for (var service in controller.services) {
+      print('Service: ${service.uuid}');
+      for (var characteristic in service.characteristics) {
+        print('Char: ${characteristic.uuid} - Notify: ${characteristic.properties.notify}');
+      }
+    }
+    
+    // After discovering services, look for the characteristic with UUID 0010
     Future.delayed(Duration(milliseconds: 500), () async {
       try {
-        // Print all characteristics to help debug
-        print('Looking for 0010 characteristic among ${controller.characteristics.length} characteristics');
+        // Find the custom service and characteristic
+        final customServiceUuid = "00000001-0000-1000-8000-00805F9B34FB";  // Based on STM toolbox
+        BluetoothCharacteristic? pulseCharacteristic;
         
-        bool found = false;
-        
-        // Find the characteristic with UUID containing 0010
+        // First try exact matching with the expected service/characteristic
         for (var service in controller.services) {
           for (var characteristic in service.characteristics) {
-            // Print all characteristics to help debug
-            print('Checking characteristic: ${characteristic.uuid}');
-            
-            if (characteristic.uuid.toString().toUpperCase().contains("00000010") || 
-                characteristic.uuid.toString().toUpperCase().contains("0010")) {
-              
-              _addLog('Found TX Power Level (0010) characteristic for pulse waveform data');
-              found = true;
-              
-              // Check if notifications are already enabled
-              if (characteristic.isNotifying) {
-                _addLog('Notifications already enabled for TX Power Level (0010)');
-              } else {
-                // Enable notifications
-                await characteristic.setNotifyValue(true);
-                _addLog('Enabled notifications for TX Power Level (0010) characteristic');
-              }
-              
-              // Read the characteristic immediately to get initial data
-              try {
-                final initialValue = await controller.readCharacteristic(characteristic);
-                _addLog('Read initial value from TX Power Level characteristic with ${initialValue.length} bytes');
-                
-                // Make sure the controller processes this initial value for the graph
-                controller.updatePulseWaveform(initialValue);
-              } catch (e) {
-                _addLog('Failed to read initial TX Power Level value: $e');
-              }
-              
-              // Set up subscription to lastValueStream to continuously get updates
-              characteristic.lastValueStream.listen((value) {
-                if (value.isNotEmpty) {
-                  _addLog('Received ${value.length} bytes from 0010 characteristic');
-                  controller.updatePulseWaveform(value);
-                }
-              });
-              
-              return; // Found and enabled
+            if (characteristic.uuid.toString().toUpperCase().contains("0010")) {
+              pulseCharacteristic = characteristic;
+              _addLog('Found pulse waveform characteristic: ${characteristic.uuid}');
+              break;
             }
           }
+          if (pulseCharacteristic != null) break;
         }
         
-        if (!found) {
-          _addLog('TX Power Level (0010) characteristic not found');
+        // If we found a suitable characteristic, enable notifications
+        if (pulseCharacteristic != null) {
+          if (!pulseCharacteristic.isNotifying) {
+            await pulseCharacteristic.setNotifyValue(true);
+            _addLog('Enabled real-time notifications for pulse waveform data (expecting 224 bytes)');
+          }
           
-          // If we didn't find the exact TX Power Level UUID, try to find any characteristic 
-          // that might be usable for waveform data
-          for (var service in controller.services) {
-            for (var characteristic in service.characteristics) {
-              if (characteristic.properties.notify || characteristic.properties.indicate) {
-                _addLog('Trying alternative characteristic for pulse data: ${characteristic.uuid}');
-                await characteristic.setNotifyValue(true);
-              }
+          // Set up notification listener for 4-byte/value data format
+          pulseCharacteristic.lastValueStream.listen((value) {
+            if (value.isNotEmpty) {
+              // Just log a simple message about receiving data
+             // _addLog('Received ${value.length} bytes of pulse waveform data');
+              
+              // Process the raw data into waveform data
+              controller.updatePulseWaveform(value);
+            }
+          });
+          
+          // Try to read initial value if available
+          if (pulseCharacteristic.properties.read) {
+            try {
+              final initialValue = await controller.readCharacteristic(pulseCharacteristic);
+              //_addLog('Read initial pulse data: ${initialValue.length} bytes');
+              controller.updatePulseWaveform(initialValue);
+            } catch (e) {
+              _addLog('Failed to read initial pulse data: $e');
             }
           }
+        } else {
+          _addLog('Could not find pulse waveform characteristic (0010)');
         }
       } catch (e) {
-        _addLog('Error enabling TX Power Level notifications: $e');
+        _addLog('Error enabling pulse waveform: $e');
       }
     });
   }
@@ -980,14 +973,14 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
           rxValues.value = value;
           timestamp.value = DateTime.now();
           
-          // Log the notification with detailed format matching the images
-          final formattedValue = controller.formatCharacteristicValue(value, characteristic.uuid);
+          // Format the notification data in 4-byte chunks for display
+          final formattedValue = formatValueAs4ByteChunks(value);
           final characteristicId = characteristic.uuid.toString();
           
           if (lastNotificationValues[characteristicId] != formattedValue) {
             lastNotificationValues[characteristicId] = formattedValue;
             
-            // Format message to match the structure in the images
+            // Format message to match the structure but with 4-byte chunk display
             String logMessage = 'Updated value for characteristic(characteristic: {id: ${characteristic.uuid}, '
                 'serviceID: ${characteristic.serviceUuid}, name: , value: $formattedValue})';
                 
@@ -1050,7 +1043,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                       timestamp.value = DateTime.now();
                       
                       // Enhanced logging for characteristic reads
-                      final formattedValue = controller.formatCharacteristicValue(value, characteristic.uuid);
+                      final formattedValue = formatValueAs4ByteChunks(value);
                       final characteristicName = _getCharacteristicName(characteristic.uuid);
                       
                       // Format log message similar to the images - show full details in app logs
@@ -1153,7 +1146,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
         const SizedBox(height: 4),
         Obx(() {
           String displayValue = rxValues.isNotEmpty 
-              ? controller.formatCharacteristicValue(rxValues, characteristic.uuid)
+              ? formatValueAs4ByteChunks(rxValues)
               : '00';
           
           return Row(
@@ -1310,7 +1303,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                       timestamp.value = DateTime.now();
                       
                       // Enhanced logging for characteristic reads
-                      final formattedValue = controller.formatCharacteristicValue(value, characteristic.uuid);
+                      final formattedValue = formatValueAs4ByteChunks(value);
                       final characteristicName = _getCharacteristicName(characteristic.uuid);
                       
                       // Format log message similar to the images - show full details in app logs
@@ -1414,7 +1407,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
         Obx(() {
           // Display the current value in the format matching the images
           String displayValue = rxValues.isNotEmpty 
-              ? controller.formatCharacteristicValue(rxValues, characteristic.uuid)
+              ? formatValueAs4ByteChunks(rxValues)
               : '00';
           
           return Row(
@@ -1655,104 +1648,112 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
       );
     }
     
-    return Stack(
-      children: [
-        ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: logs.length,
-          itemBuilder: (context, index) {
-            // Display logs in reverse chronological order (newest first)
-            final logEntry = logs[logs.length - 1 - index];
-            final DateTime timestamp = logEntry['timestamp'];
-            final String message = logEntry['message'];
-            
-            // Format date and time as shown in the images
-            final String formattedDate = '${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')}';
-            final String formattedTime = '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}:${timestamp.second.toString().padLeft(2, '0')}';
-            
-            // Check if the message is a characteristic update/read notification
-            bool isUpdateNotification = message.contains('Updated value for characteristic');
-            bool isReadNotification = message.contains('Read value for characteristic');
-            
-            // Extract title based on type of log message
-            String title = '';
-            if (isUpdateNotification) {
-              title = 'Updated value for characteristic';
-            } else if (isReadNotification) {
-              title = 'Read value for characteristic';
-            }
-            
-            return Container(
-              padding: const EdgeInsets.all(8),
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2C2C2C),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Scaffold(
+      backgroundColor: const Color(0xFF1E1E1E),
+      body: Stack(
+        children: [
+          // Use a Container with a fixed height constraint to prevent the TabBarView from being scrollable
+          Container(
+            height: MediaQuery.of(context).size.height, 
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 80), // Add bottom padding for FAB
+              itemCount: logs.length,
+              physics: const AlwaysScrollableScrollPhysics(), // Only allow scrolling within the ListView
+              itemBuilder: (context, index) {
+                // Display logs in reverse chronological order (newest first)
+                final logEntry = logs[logs.length - 1 - index];
+                final DateTime timestamp = logEntry['timestamp'];
+                final String message = logEntry['message'];
+                
+                // Format date and time as shown in the images
+                final String formattedDate = '${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')}';
+                final String formattedTime = '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}:${timestamp.second.toString().padLeft(2, '0')}';
+                
+                // Check if the message is a characteristic update/read notification
+                bool isUpdateNotification = message.contains('Updated value for characteristic');
+                bool isReadNotification = message.contains('Read value for characteristic');
+                
+                // Extract title based on type of log message
+                String title = '';
+                if (isUpdateNotification) {
+                  title = 'Updated value for characteristic';
+                } else if (isReadNotification) {
+                  title = 'Read value for characteristic';
+                }
+                
+                return Container(
+                  padding: const EdgeInsets.all(8),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2C2C2C),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        formattedDate,
-                        style: const TextStyle(
-                          color: Colors.yellow,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            formattedDate,
+                            style: const TextStyle(
+                              color: Colors.yellow,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            formattedTime,
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
                       ),
+                      if (title.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          title,
+                          style: TextStyle(
+                            color: isReadNotification ? Colors.green : Colors.yellow,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 4),
                       Text(
-                        formattedTime,
+                        title.isNotEmpty ? message.substring(title.length) : message,
                         style: const TextStyle(
-                          color: Colors.grey,
+                          color: Colors.white,
                           fontSize: 14,
                         ),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
-                  if (title.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: isReadNotification ? Colors.green : Colors.yellow,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 4),
-                  Text(
-                    title.isNotEmpty ? message.substring(title.length) : message,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: FloatingActionButton(
-            onPressed: () {
-              setState(() {
-                logs.clear();
-              });
-            },
-            backgroundColor: Colors.red,
-            mini: true,
-            child: const Icon(Icons.delete_outline),
+                );
+              },
+            ),
           ),
-        ),
-      ],
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton(
+              onPressed: () {
+                setState(() {
+                  logs.clear();
+                });
+              },
+              backgroundColor: Colors.red,
+              mini: true,
+              child: const Icon(Icons.delete_outline),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1814,7 +1815,9 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
       try {
         final value = await controller.readCharacteristic(characteristic);
         String charName = _getCharacteristicName(characteristic.uuid);
-        String formattedValue = controller.formatCharacteristicValue(value, characteristic.uuid);
+        
+        // Use our new formatter for 4-byte chunk display
+        String formattedValue = formatValueAs4ByteChunks(value);
         
         // Format log message similar to the images
         String logMessage = 'Read value for characteristic(characteristic: {id: ${characteristic.uuid}, ' +
@@ -1959,6 +1962,38 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
     }
     
     return 'CHARACTERISTIC';
+  }
+
+  // Helper method to format values in 4-byte chunks like "0000-4FB2"
+  String formatValueAs4ByteChunks(List<int> value) {
+    if (value.isEmpty) return "00";
+    
+    StringBuffer formattedValue = StringBuffer();
+    for (int i = 0; i < value.length; i += 4) {
+      if (i + 3 < value.length) {
+        // Combine 4 bytes into a 32-bit integer (big-endian)
+        int combinedValue = (value[i] << 24) | (value[i+1] << 16) | 
+                          (value[i+2] << 8) | value[i+3];
+        
+        // Format as an 8-character hex string (without 0x prefix)
+        String hexValue = combinedValue.toRadixString(16).padLeft(8, '0').toUpperCase();
+        
+        // Add to the buffer
+        formattedValue.write(hexValue);
+        
+        // Add hyphen between chunks (except after the last one)
+        if (i + 4 < value.length) {
+          formattedValue.write('-');
+        }
+      } else {
+        // Handle any remaining bytes (if not divisible by 4)
+        for (int j = i; j < value.length; j++) {
+          formattedValue.write(value[j].toRadixString(16).padLeft(2, '0').toUpperCase());
+        }
+      }
+    }
+    
+    return formattedValue.toString();
   }
 }
 
