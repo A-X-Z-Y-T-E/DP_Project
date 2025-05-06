@@ -12,8 +12,8 @@ class PulseWaveformChart extends StatefulWidget {
 
   const PulseWaveformChart({
     Key? key,
-    this.lineColor = Colors.green,
-    this.height = 200.0,
+    this.lineColor = Colors.red,
+    this.height = 70000.0,
     this.title = 'Pulse Waveform',
   }) : super(key: key);
 
@@ -21,46 +21,77 @@ class PulseWaveformChart extends StatefulWidget {
   State<PulseWaveformChart> createState() => _PulseWaveformChartState();
 }
 
-class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTickerProviderStateMixin {
+class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   BluetoothController? _controller;
   Timer? _refreshTimer;
   List<FlSpot> _spots = [];
-  Map<String, double> _yRange = {'min': 0, 'max': 200};
+  Map<String, double> _yRange = {'min': 0, 'max': 70000}; // Updated to 70000
   
   // Track the last data we processed to detect changes
   List<int> _lastProcessedData = [];
   int _updateCounter = 0;
+  
+  // Track controller status 
+  bool _controllerAvailable = false;
+  
+  // Add worker reference to explicitly dispose it
+  Worker? _worker;
+
+  @override
+  bool get wantKeepAlive => true; // Keep state alive when switching tabs
 
   @override
   void initState() {
     super.initState();
-    
+    _initializeController();
+  }
+  
+  void _initializeController() {
     try {
       _controller = Get.find<BluetoothController>();
+      _controllerAvailable = true;
       
       // Use a higher refresh rate for smoother animation
-      _refreshTimer = Timer.periodic(Duration(milliseconds: 16), (_) {
+      _refreshTimer?.cancel();
+      _refreshTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
         if (mounted) {
           _updateChartData();
         }
       });
       
-      // Fix: Use custom listener instead of 'ever' to avoid type issues
-      // Create a worker to listen for changes to the pulse data
-      final worker = ever<List<int>>(_controller!.pulseWaveformData as RxInterface<List<int>>, _processNewData);
+      // Dispose any existing worker
+      _worker?.dispose();
       
-      // Make sure to dispose the worker when the widget is disposed
-      // We'll save a reference to it
+      // Create a properly typed worker to listen for changes to the pulse data
+      _worker = ever<List<int>>(
+        _controller!.pulseWaveformData as RxInterface<List<int>>, 
+        _processNewData
+      );
+      
+      // Initial data update
+      if (_controller!.pulseWaveformData.isNotEmpty) {
+        _processNewData(_controller!.pulseWaveformData);
+      }
+      
     } catch (e) {
+      _controllerAvailable = false;
       print("Error initializing chart: $e");
     }
   }
   
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Try to re-initialize controller if needed
+    if (!_controllerAvailable) {
+      _initializeController();
+    }
+  }
+
   // Separate method to process new data
   void _processNewData(List<int> newData) {
     if (mounted && newData.length == 56) {
       // This callback is triggered whenever new data arrives
-      print('New pulse data received: ${newData.length} points');
       
       // Process the new data and update the chart
       if (!_areListsEqual(newData, _lastProcessedData)) {
@@ -100,18 +131,17 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _worker?.dispose(); // Properly dispose the worker
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Try to get the controller if it wasn't initialized or was lost
-    if (_controller == null) {
-      try {
-        _controller = Get.find<BluetoothController>();
-      } catch (e) {
-        return _buildErrorContainer('Bluetooth controller not available');
-      }
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
+    // Try to get the controller again if it was lost
+    if (_controller == null || !_controllerAvailable) {
+      _initializeController();
     }
 
     return Container(
@@ -135,7 +165,7 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
                 ),
               ),
               Text(
-                'Data points: ${_controller?.pulseWaveformData.length ?? 0}',
+                'Data points: ${_controllerAvailable ? _controller?.pulseWaveformData.length ?? 0 : 0}',
                 style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 12,
@@ -153,11 +183,25 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
   }
 
   Widget _buildContent() {
-    if (_controller == null) {
+    if (!_controllerAvailable || _controller == null) {
       return Center(
-        child: Text(
-          'Controller not available',
-          style: TextStyle(color: widget.lineColor.withOpacity(0.7)),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Reconnecting to controller...',
+              style: TextStyle(color: widget.lineColor.withOpacity(0.7)),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: widget.lineColor.withOpacity(0.7),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -174,38 +218,6 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
     }
 
     return _buildWaveformChart();
-  }
-  
-  Widget _buildErrorContainer(String message) {
-    return Container(
-      height: widget.height,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1C2433),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.title,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 16,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: Center(
-              child: Text(
-                message,
-                style: TextStyle(color: widget.lineColor.withOpacity(0.7)),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
   
   Widget _buildWaitingView() {
@@ -236,7 +248,7 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
             gridData: FlGridData(
               show: true,
               drawVerticalLine: false,
-              horizontalInterval: 40,
+              horizontalInterval: 10000, // Updated for 70000 scale
               getDrawingHorizontalLine: (value) {
                 return FlLine(
                   color: Colors.white10,
@@ -259,8 +271,8 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
                 sideTitles: SideTitles(
                   showTitles: true,
                   getTitlesWidget: (value, meta) {
-                    // Show markers at regular intervals that match the screenshot
-                    if (value % 40 == 0 && value >= 0 && value <= 200) {
+                    // Show markers at 0, 10000, 20000, etc. up to 70000
+                    if (value % 10000 == 0 && value >= 0 && value <= 70000) {
                       return Text(
                         value.toInt().toString(),
                         style: TextStyle(
@@ -271,7 +283,7 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
                     }
                     return const SizedBox();
                   },
-                  reservedSize: 30,
+                  reservedSize: 45, // Increased for larger numbers
                 ),
               ),
             ),
@@ -286,8 +298,8 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
             ),
             minX: 0,
             maxX: 55, // Always show all 56 points (0-55)
-            minY: 0,
-            maxY: 200, // Fixed scale to match STM toolbox
+            minY: _yRange['min'],
+            maxY: _yRange['max'], // Now using 70000 as max
             lineTouchData: LineTouchData(
               enabled: true,
               touchTooltipData: LineTouchTooltipData(
@@ -295,8 +307,9 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
                 getTooltipItems: (touchedSpots) {
                   return touchedSpots.map((spot) {
                     final index = spot.x.toInt();
-                    if (index >= 0 && index < _controller!.pulseWaveformData.length) {
-                      // Show the value in decimal and hex format
+                    if (_controllerAvailable && _controller != null && 
+                        index >= 0 && index < _controller!.pulseWaveformData.length) {
+                      // Show the raw value in decimal and hex format
                       final value = _controller!.pulseWaveformData[index];
                       final hexValue = value.toRadixString(16).padLeft(8, '0').toUpperCase();
                       return LineTooltipItem(
@@ -329,7 +342,6 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
               ),
             ],
           ),
-          // Fix: Remove swapAnimationDuration parameter as it's not supported
         ),
         
         // Show update indicator
@@ -345,6 +357,27 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
             ),
           ),
         ),
+
+        // Add Y-axis scale indicator - updated to show 0-70000 range
+        Positioned(
+          top: 5,
+          left: 5,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Text(
+              'Y-axis: 0-70000',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -357,9 +390,10 @@ class _PulseWaveformChartState extends State<PulseWaveformChart> with SingleTick
       // X-axis is the sample index (0-55)
       double x = i.toDouble();
       
-      // Y-axis is the value, clamped to chart range
-      double y = pulseData[i].toDouble().clamp(0.0, 200.0);
-      
+      // Use the raw values directly - will be capped by the chart's Y range if necessary
+      double y = pulseData[i].toDouble();
+
+      // Create spot - no scaling needed as we've set the y-axis to accommodate values up to 70000
       spots.add(FlSpot(x, y));
     }
     

@@ -622,7 +622,7 @@ class BluetoothController extends GetxController {
     }
   }
 
-  // Modified to handle 4-byte chunks (224 bytes = 56 values)
+  // Modified to use raw data without scaling
   void updatePulseWaveform(List<int> newData) {
     // Only update if we have valid data
     if (newData.isEmpty) return;
@@ -655,26 +655,13 @@ class BluetoothController extends GetxController {
     
     print('Processed ${processedData.length} values from ${newData.length} bytes');
     
-    // Scale values to fit within chart range if needed
-    bool needsScaling = false;
-    int maxValue = 0;
-    
-    for (int value in processedData) {
-      if (value > maxValue) maxValue = value;
-      if (value > 200) needsScaling = true;
-    }
-    
-    List<int> scaledData = processedData;
-    if (needsScaling && maxValue > 0) {
-      double scaleFactor = 200.0 / maxValue;
-      scaledData = processedData.map((value) => (value * scaleFactor).toInt()).toList();
-      print('Values scaled by factor $scaleFactor to fit chart range');
-    }
+    // Use raw values without scaling
+    List<int> rawData = processedData;
     
     // Only update if the data is different to avoid unnecessary redraws
-    if (!_areListsEqual(_pulseWaveformData, scaledData)) {
-      _pulseWaveformData.value = List<int>.from(scaledData);
-      print('Updated pulse waveform with ${scaledData.length} data points');
+    if (!_areListsEqual(_pulseWaveformData, rawData)) {
+      _pulseWaveformData.value = List<int>.from(rawData);
+      print('Updated pulse waveform with ${rawData.length} data points');
     }
   }
 

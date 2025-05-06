@@ -218,46 +218,37 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
           );
         }
 
-        return SingleChildScrollView(
-          child: Column(
-            children: [
-              _buildStatusCard(),
-              const SizedBox(height: 8),
-              _buildServicesSection(),
-              if (controller.isDeviceConnected()) ...[
-                TabBar(
+        return Column(
+          children: [
+            _buildStatusCard(),
+            const SizedBox(height: 8),
+            _buildServicesSection(),
+            if (controller.isDeviceConnected()) ...[
+              TabBar(
+                controller: _tabController,
+                tabs: const [
+                  Tab(text: 'PROFILE'),
+                  Tab(text: 'DETAILS'),
+                  Tab(text: 'LOG'),
+                ],
+                labelColor: Colors.blue,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: Colors.blue,
+              ),
+              Expanded(
+                child: TabBarView(
+                  physics: const NeverScrollableScrollPhysics(),
                   controller: _tabController,
-                  tabs: const [
-                    Tab(text: 'PROFILE'),
-                    Tab(text: 'DETAILS'),
-                    Tab(text: 'LOG'),
+                  children: [
+                    _buildProfileTab(),
+                    _buildDetailsTab(),
+                    _buildLogTab(),
                   ],
-                  labelColor: Colors.blue,
-                  unselectedLabelColor: Colors.white70,
-                  indicatorColor: Colors.blue,
                 ),
-                SizedBox(
-                  height: MediaQuery.of(context).size.height * 1.5,
-                  child: TabBarView(
-                    physics: const NeverScrollableScrollPhysics(),
-                    controller: _tabController,
-                    children: [
-                      SingleChildScrollView(
-                        physics: const ClampingScrollPhysics(),
-                        child: _buildProfileTab(),
-                      ),
-                      SingleChildScrollView(
-                        physics: const ClampingScrollPhysics(),
-                        child: _buildDetailsTab(),
-                      ),
-                      _buildLogTab(),
-                    ],
-                  ),
-                ),
-              ] else
-                _buildDisconnectedView(),
-            ],
-          ),
+              ),
+            ] else
+              _buildDisconnectedView(),
+          ],
         );
       }),
     );
@@ -578,255 +569,259 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
   }
 
   Widget _buildProfileTab() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Heart Rate Monitor',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 100.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Heart Rate Monitor',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C2433),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 120,
-                  height: 200,
-                  child: Obx(() {
-                    // Determine sensor position based on location
-                    Offset sensorPosition = const Offset(
-                        0.5, 0.35); // Default to heart/chest position
-                    switch (controller.sensorLocation.toLowerCase()) {
-                      case "chest":
-                        sensorPosition = const Offset(0.5, 0.35);
-                        break;
-                      case "wrist":
-                        sensorPosition = const Offset(0.15, 0.4);
-                        break;
-                      case "finger":
-                        sensorPosition = const Offset(0.15, 0.45);
-                        break;
-                      case "hand":
-                        sensorPosition = const Offset(0.15, 0.4);
-                        break;
-                      case "ear lobe":
-                        sensorPosition = const Offset(0.65, 0.15);
-                        break;
-                      case "foot":
-                        sensorPosition = const Offset(0.65, 0.85);
-                        break;
-                      case "other":
-                        sensorPosition = const Offset(
-                            0.5, 0.35); // Default to heart/chest for "other"
-                        break;
-                    }
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C2433),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 120,
+                    height: 200,
+                    child: Obx(() {
+                      // Determine sensor position based on location
+                      Offset sensorPosition = const Offset(
+                          0.5, 0.35); // Default to heart/chest position
+                      switch (controller.sensorLocation.toLowerCase()) {
+                        case "chest":
+                          sensorPosition = const Offset(0.5, 0.35);
+                          break;
+                        case "wrist":
+                          sensorPosition = const Offset(0.15, 0.4);
+                          break;
+                        case "finger":
+                          sensorPosition = const Offset(0.15, 0.45);
+                          break;
+                        case "hand":
+                          sensorPosition = const Offset(0.15, 0.4);
+                          break;
+                        case "ear lobe":
+                          sensorPosition = const Offset(0.65, 0.15);
+                          break;
+                        case "foot":
+                          sensorPosition = const Offset(0.65, 0.85);
+                          break;
+                        case "other":
+                          sensorPosition = const Offset(
+                              0.5, 0.35); // Default to heart/chest for "other"
+                          break;
+                      }
 
-                    return CustomPaint(
-                      painter: BodyOutlinePainter(
-                        color: Colors.white,
-                        sensorPosition: sensorPosition,
-                      ),
-                      size: const Size(120, 200),
-                    );
-                  }),
-                ),
-                const SizedBox(width: 24),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Text(
-                            'Skin contact',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 16,
+                      return CustomPaint(
+                        painter: BodyOutlinePainter(
+                          color: Colors.white,
+                          sensorPosition: sensorPosition,
+                        ),
+                        size: const Size(120, 200),
+                      );
+                    }),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              'Skin contact',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Obx(() => Row(
-                                children: [
-                                  Icon(
-                                    Icons.check_circle,
-                                    color: controller.hasContact
-                                        ? Colors.green
-                                        : Colors.grey,
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    controller.hasContact ? 'Yes' : 'No',
-                                    style: TextStyle(
+                            const SizedBox(width: 8),
+                            Obx(() => Row(
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle,
                                       color: controller.hasContact
                                           ? Colors.green
                                           : Colors.grey,
-                                      fontSize: 16,
+                                      size: 16,
                                     ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      controller.hasContact ? 'Yes' : 'No',
+                                      style: TextStyle(
+                                        color: controller.hasContact
+                                            ? Colors.green
+                                            : Colors.grey,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                )),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Text(
+                              'Position',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Obx(() => Text(
+                                  controller.sensorLocation,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
                                   ),
-                                ],
-                              )),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          const Text(
-                            'Position',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 16,
+                                )),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Text(
+                              'RR Interval',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Obx(() => Text(
-                                controller.sensorLocation,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                ),
-                              )),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          const Text(
-                            'RR Interval',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 16,
+                            const SizedBox(width: 8),
+                            const Text(
+                              '1.0 s',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            '1.0 s',
-                            style: TextStyle(
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const PulseWaveformChart(
+              key: ValueKey('pulseWaveformChart'),
+              height: 220,
+              lineColor: Colors.red, // Changed from green to red
+              title: 'Pulse Waveform Monitor',
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C2433),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'HRV',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Obx(() => Text(
+                            '${controller.hrv} ms',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Text(
+                        'Steps',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Obx(() => Text(
+                            '${controller.steps}',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 16,
                             ),
-                          ),
-                        ],
-                      ),
+                          )),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Text(
+                        'Skin Temperature',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Obx(() => Text(
+                            '${controller.skinTemperature.toStringAsFixed(1)}°C',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                            ),
+                          )),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Text(
+                        'Fall Detection',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Obx(() => Text(
+                            controller.fallDetected ? 'Detected' : 'None',
+                            style: TextStyle(
+                              color: controller.fallDetected ? Colors.red : Colors.green,
+                              fontSize: 16,
+                              fontWeight: controller.fallDetected ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          )),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          const PulseWaveformChart(
-            height: 220,
-            lineColor: Colors.green,
-            title: 'Pulse Waveform Monitor',
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C2433),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'HRV',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Obx(() => Text(
-                          '${controller.hrv} ms',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        )),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Text(
-                      'Steps',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Obx(() => Text(
-                          '${controller.steps}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                          ),
-                        )),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Text(
-                      'Skin Temperature',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Obx(() => Text(
-                          '${controller.skinTemperature.toStringAsFixed(1)}°C',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                          ),
-                        )),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Text(
-                      'Fall Detection',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Obx(() => Text(
-                          controller.fallDetected ? 'Detected' : 'None',
-                          style: TextStyle(
-                            color: controller.fallDetected ? Colors.red : Colors.green,
-                            fontSize: 16,
-                            fontWeight: controller.fallDetected ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        )),
-                  ],
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -844,116 +839,119 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text(
-            'Generic Attribute',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+    // Add SingleChildScrollView to fix overflow
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Generic Attribute',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16.0),
-          child: Text(
-            '1801',
-            style: TextStyle(
-              color: Colors.blue,
-              fontSize: 14,
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              '1801',
+              style: TextStyle(
+                color: Colors.blue,
+                fontSize: 14,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16.0),
-          child: Text(
-            'Is Primary',
-            style: TextStyle(
-              color: Colors.blue,
-              fontSize: 14,
+          const SizedBox(height: 8),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              'Is Primary',
+              style: TextStyle(
+                color: Colors.blue,
+                fontSize: 14,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: _buildActionButton(
-            'READ ALL CHARACTERISTICS',
-            () => _readAllCharacteristics(),
-            Colors.blue,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: _buildActionButton(
-            'ENABLE ALL NOTIFICATIONS / INDICATIONS',
-            () => _enableAllNotifications(),
-            Colors.blue,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildActionButton(
-                  'READ PHY',
-                  () {},
-                  Colors.blue,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildActionButton(
-                  'SET PREFERRED PHY',
-                  () {},
-                  Colors.blue,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildActionButton(
-                  'REQUEST MTU',
-                  () => _requestMtu(517),
-                  Colors.blue,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildActionButton(
-                  'CHANGE CONNECTION INTERVAL',
-                  () {},
-                  Colors.blue,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        
-        // Display individual characteristics similar to the images
-        ...controller.characteristics.map((characteristic) => 
+          const SizedBox(height: 16),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: _buildCharacteristicItem(characteristic),
-          )
-        ).toList(),
-        const SizedBox(height: 20), // Add some padding at the bottom
-      ],
+            child: _buildActionButton(
+              'READ ALL CHARACTERISTICS',
+              () => _readAllCharacteristics(),
+              Colors.blue,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: _buildActionButton(
+              'ENABLE ALL NOTIFICATIONS / INDICATIONS',
+              () => _enableAllNotifications(),
+              Colors.blue,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildActionButton(
+                    'READ PHY',
+                    () {},
+                    Colors.blue,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildActionButton(
+                    'SET PREFERRED PHY',
+                    () {},
+                    Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildActionButton(
+                    'REQUEST MTU',
+                    () => _requestMtu(517),
+                    Colors.blue,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildActionButton(
+                    'CHANGE CONNECTION INTERVAL',
+                    () {},
+                    Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          
+          // Display individual characteristics similar to the images
+          ...controller.characteristics.map((characteristic) => 
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: _buildCharacteristicItem(characteristic),
+            )
+          ).toList(),
+          const SizedBox(height: 20), // Add some padding at the bottom
+        ],
+      ),
     );
   }
   
