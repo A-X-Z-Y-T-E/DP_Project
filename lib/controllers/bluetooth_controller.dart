@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data'; // Added for ByteData, Endian, Uint8List if not already present
 
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
@@ -143,61 +144,117 @@ class BluetoothController extends GetxController {
     // Check if Bluetooth is supported
     if (!await FlutterBluePlus.isSupported) {
       print('Error: Bluetooth not supported on this device');
+      _showDialog(
+        AlertDialog(
+          backgroundColor: const Color(0xFF2C2C2C),
+          title: const Text('Bluetooth Not Supported', style: TextStyle(color: Colors.white)),
+          content: const Text('This device does not support Bluetooth.', style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(onPressed: () => Get.back(), child: const Text('OK', style: TextStyle(color: Colors.blue))),
+          ],
+        ),
+      );
       return false;
     }
 
-    // First check existing permissions
+    // Get current permission statuses
     final locationStatus = await Permission.location.status;
-    final bluetoothStatus = await Permission.bluetoothScan.status;
+    final bluetoothScanStatus = await Permission.bluetoothScan.status;
+    final bluetoothConnectStatus = await Permission.bluetoothConnect.status; // Also check connect permission
 
-    // If permissions are already granted, check if services are enabled
-    if (locationStatus.isGranted && bluetoothStatus.isGranted) {
+    // If all necessary permissions are already granted, check if services are enabled
+    if (locationStatus.isGranted && bluetoothScanStatus.isGranted && bluetoothConnectStatus.isGranted) {
       return await _checkServicesEnabled();
     }
 
-    // If permissions were previously denied, show settings dialog
-    if (locationStatus.isDenied || bluetoothStatus.isDenied) {
-      final bool shouldRequest = await _showDialog<bool>(
-            AlertDialog(
-              backgroundColor: const Color(0xFF2C2C2C),
-              title: const Text('Permissions Required',
-                  style: TextStyle(color: Colors.white)),
-              content: const Text(
-                  'This app needs Bluetooth and Location permissions to function properly. Would you like to grant them?',
-                  style: TextStyle(color: Colors.white70)),
-              actions: [
-                TextButton(
-                  onPressed: () => Get.back(result: false),
-                  child: const Text('NOT NOW',
-                      style: TextStyle(color: Colors.grey)),
-                ),
-                TextButton(
-                  onPressed: () => Get.back(result: true),
-                  child: const Text('CONTINUE',
-                      style: TextStyle(color: Colors.blue)),
-                ),
-              ],
-            ),
-          ) ??
-          false;
-
-      if (!shouldRequest) return false;
-
-      // Request permissions if user agrees
-      final statuses = await [
-        Permission.bluetooth,
-        Permission.bluetoothScan,
-        Permission.bluetoothConnect,
-        Permission.location,
-      ].request();
-
-      if (statuses.values.any((status) => !status.isGranted)) {
-        print('Permission required: Please grant permissions in Settings');
-        await openAppSettings();
-        return false;
-      }
+    // Handle permanently denied permissions first
+    if (locationStatus.isPermanentlyDenied || bluetoothScanStatus.isPermanentlyDenied || bluetoothConnectStatus.isPermanentlyDenied) {
+      print('Permissions permanently denied. Directing to settings.');
+      await _showDialog<void>(
+        AlertDialog(
+          backgroundColor: const Color(0xFF2C2C2C),
+          title: const Text('Permissions Required', style: TextStyle(color: Colors.white)),
+          content: const Text(
+              'This app requires Bluetooth and Location permissions to function. Location is needed by Android to allow Bluetooth scanning. Please enable them in app settings.',
+              style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(onPressed: () => Get.back(), child: const Text('CANCEL', style: TextStyle(color: Colors.grey))),
+            TextButton(
+                onPressed: () {
+                  Get.back();
+                  openAppSettings();
+                },
+                child: const Text('OPEN SETTINGS', style: TextStyle(color: Colors.blue))),
+          ],
+        ),
+      );
+      return false;
     }
 
+    // If permissions are denied (but not permanently) or not yet determined, ask the user
+    // This dialog explains why permissions are needed before the system dialog appears.
+    final bool? shouldRequest = await _showDialog<bool>(
+      AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text('Permissions Required', style: TextStyle(color: Colors.white)),
+        content: const Text(
+            'This app needs Bluetooth and Location permissions. Location permission is required by Android to allow Bluetooth scanning, even if this app does not use your GPS location directly. Would you like to grant them?',
+            style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Get.back(result: false), child: const Text('NOT NOW', style: TextStyle(color: Colors.grey))),
+          TextButton(onPressed: () => Get.back(result: true), child: const Text('CONTINUE', style: TextStyle(color: Colors.blue))),
+        ],
+      ),
+    );
+
+    if (shouldRequest != true) {
+      print('User declined to grant permissions via pre-dialog.');
+      return false; // User chose "NOT NOW"
+    }
+
+    // Request permissions
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.location,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      // Permission.bluetooth, // Optional: for older Android versions if not covered by above
+    ].request();
+
+    // Check statuses after request
+    bool allGranted = true;
+    statuses.forEach((permission, status) {
+      if (!status.isGranted) {
+        allGranted = false;
+        print('${permission.toString()} was not granted. Status: $status');
+      }
+    });
+
+    if (!allGranted) {
+      print('One or more permissions were not granted after request.');
+      // Optionally, show another dialog explaining that settings need to be checked if still denied.
+      // This is especially relevant if a permission was denied (not permanently) during the system prompt.
+      await _showDialog<void>(
+        AlertDialog(
+          backgroundColor: const Color(0xFF2C2C2C),
+          title: const Text('Permissions Still Required', style: TextStyle(color: Colors.white)),
+          content: const Text(
+              'Some permissions were not granted. Location is needed by Android for Bluetooth scanning. Please check app settings to enable them for full functionality.',
+              style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(onPressed: () => Get.back(), child: const Text('LATER', style: TextStyle(color: Colors.grey))),
+            TextButton(
+                onPressed: () {
+                  Get.back();
+                  openAppSettings();
+                },
+                child: const Text('OPEN SETTINGS', style: TextStyle(color: Colors.blue))),
+          ],
+        ),
+      );
+      return false;
+    }
+
+    // If all permissions are granted, proceed to check if services (like GPS, Bluetooth adapter) are enabled
     return await _checkServicesEnabled();
   }
 
@@ -622,47 +679,86 @@ class BluetoothController extends GetxController {
     }
   }
 
-  // Modified to use raw data without scaling
-  void updatePulseWaveform(List<int> newData) {
-    // Only update if we have valid data
-    if (newData.isEmpty) return;
-    
-    print('Processing real data from 0010 characteristic: ${newData.length} bytes');
+  // Modified to use raw data without scaling, and parse steps/temp from a list of 4-byte values
+  void updatePulseWaveform(List<int> rawBytes) {
+    if (rawBytes.isEmpty) return;
 
-    // The STM toolbox format shows 224 bytes / 4 = 56 values (4 bytes per value)
-    final processedData = <int>[];
-    
-    // Process the data in 4-byte chunks to match STM toolbox format
-    for (int i = 0; i < newData.length; i += 4) {
-      if (i + 3 < newData.length) {
-        // Properly combine 4 bytes into a single 32-bit integer value
+    print('Processing raw data. Total bytes received: ${rawBytes.length}');
+
+    // Convert all received bytes into a list of 4-byte integer values (big-endian)
+    final allIntegerValues = <int>[];
+    for (int i = 0; i < rawBytes.length; i += 4) {
+      if (i + 3 < rawBytes.length) {
         // Using big-endian format: first byte is most significant
-        int value = (newData[i] << 24) | (newData[i+1] << 16) | 
-                    (newData[i+2] << 8) | newData[i+3];
-        processedData.add(value);
+        int value = (rawBytes[i] << 24) |
+                    (rawBytes[i+1] << 16) |
+                    (rawBytes[i+2] << 8)  |
+                    rawBytes[i+3];
+        allIntegerValues.add(value);
+      } else {
+        // Log if there are trailing bytes not forming a full 4-byte value.
+        print('Trailing bytes detected: ${rawBytes.length - i} bytes. Not processed into an integer value.');
+        break; // Stop processing if a full 4-byte chunk isn't available
       }
     }
-    
-    // If we received fewer bytes than expected, fill with zeroes to ensure 56 values
-    while (processedData.length < 56) {
-      processedData.add(0);
+    print('Converted raw bytes into ${allIntegerValues.length} integer values.');
+
+    // 1. Process Pulse Waveform Data (first 56 integer values)
+    final processedWaveformData = <int>[];
+    if (allIntegerValues.isNotEmpty) {
+      // Take up to the first 56 values for the waveform
+      processedWaveformData.addAll(allIntegerValues.take(56));
     }
     
-    // If we have more than 56 values, trim the list to exactly 56 values
-    if (processedData.length > 56) {
-      processedData.length = 56;
+    // Pad with zeros if fewer than 56 values were extracted for the waveform
+    while (processedWaveformData.length < 56) {
+      processedWaveformData.add(0);
+    }
+    // Ensure exactly 56 values for the waveform (take(56) should handle this, but as a safeguard)
+    if (processedWaveformData.length > 56) {
+       processedWaveformData.length = 56;
+    }
+
+    if (!_areListsEqual(_pulseWaveformData, processedWaveformData)) {
+      _pulseWaveformData.value = List<int>.from(processedWaveformData);
+      print('Updated pulse waveform with ${processedWaveformData.length} data points.');
+    }
+
+    // 2. Process Step Count (the 57th integer value, which is at index 56)
+    if (allIntegerValues.length >= 57) {
+      try {
+        int stepsValue = allIntegerValues[56]; // 57th value is at index 56
+        _steps.value = stepsValue;
+        print('Updated steps from 57th value: $stepsValue');
+      } catch (e) {
+        // This catch might be redundant if length check is robust, but good for safety.
+        print('Error processing step count from 57th value (index 56): $e');
+      }
+    } else {
+      print('Not enough integer values for step count. Found ${allIntegerValues.length} values, need at least 57.');
+    }
+
+    // 3. Process Skin Temperature (the 58th integer value, which is at index 57)
+    if (allIntegerValues.length >= 58) {
+      try {
+        int tempIntValue = allIntegerValues[57]; // 58th value is at index 57
+        
+        // Convert to double, assuming the integer value needs to be divided by 100.0
+        // Example: if device sends 3650, this becomes 36.50 C.
+        // Adjust divisor if device sends temperature scaled differently (e.g., by 10).
+        double tempValue = tempIntValue / 100.0; 
+        
+        _skinTemperature.value = tempValue;
+        print('Updated skin temperature from 58th value: ${tempValue.toStringAsFixed(2)}°C (raw int: $tempIntValue)');
+      } catch (e) {
+        // This catch might be redundant if length check is robust.
+        print('Error processing skin temperature from 58th value (index 57): $e');
+      }
+    } else {
+      print('Not enough integer values for skin temperature. Found ${allIntegerValues.length} values, need at least 58.');
     }
     
-    print('Processed ${processedData.length} values from ${newData.length} bytes');
-    
-    // Use raw values without scaling
-    List<int> rawData = processedData;
-    
-    // Only update if the data is different to avoid unnecessary redraws
-    if (!_areListsEqual(_pulseWaveformData, rawData)) {
-      _pulseWaveformData.value = List<int>.from(rawData);
-      print('Updated pulse waveform with ${rawData.length} data points');
-    }
+    // Values after the 58th integer value (i.e., after 58*4 = 232 bytes) are ignored.
   }
 
   // Helper method to check if two lists have the same content
