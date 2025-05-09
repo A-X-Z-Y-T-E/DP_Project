@@ -1,453 +1,311 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 import 'package:Vital_Monitor/controllers/user_controller.dart';
-import 'package:syncfusion_flutter_charts/charts.dart';
-import 'package:intl/intl.dart'; // Import the intl package for DateFormat
 
 class HealthHistoryPage extends StatefulWidget {
-  const HealthHistoryPage({super.key});
+  const HealthHistoryPage({Key? key}) : super(key: key);
 
   @override
   State<HealthHistoryPage> createState() => _HealthHistoryPageState();
 }
 
 class _HealthHistoryPageState extends State<HealthHistoryPage> {
-  final _db = FirebaseFirestore.instance;
-  final userController = Get.find<UserController>();
-  String? expandedChart; // Track which chart is expanded
-  
-  // Cache the processed data to avoid repeated calculations
-  List<QueryDocumentSnapshot>? _cachedReadings;
-  List<Map<String, dynamic>>? _cachedHeartRateData;
-  List<Map<String, dynamic>>? _cachedHrvData;
-  List<Map<String, dynamic>>? _cachedStepsData;
-  List<Map<String, dynamic>>? _cachedSkinTempData;
+  final UserController _userController = Get.find<UserController>();
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _healthRecords = [];
+  String _selectedFilter = 'All';
+  DateTime? _startDate;
+  DateTime? _endDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHealthData();
+  }
+
+  Future<void> _loadHealthData() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      if (_userController.username.isEmpty) {
+        setState(() {
+          _isLoading = false;
+          _healthRecords = [];
+        });
+        return;
+      }
+
+      // Reference to the user's health readings collection
+      final healthRef = _db
+          .collection('users')
+          .doc(_userController.username.value)
+          .collection('health_readings');
+
+      // Create query based on filters
+      Query query = healthRef.orderBy('timestamp', descending: true);
+
+      if (_startDate != null && _endDate != null) {
+        query = query.where('timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(_startDate!));
+        query = query.where('timestamp',
+            isLessThanOrEqualTo: Timestamp.fromDate(
+                _endDate!.add(const Duration(days: 1))));
+      }
+
+      final querySnapshot = await query.get();
+      final records = querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        // Convert Timestamp to DateTime
+        final timestamp = (data['timestamp'] as Timestamp).toDate();
+        return {
+          'id': doc.id,
+          'timestamp': timestamp,
+          'steps': data['steps'] ?? 0,
+          'skinTemperature': data['skinTemperature'] ?? 36.5,
+          'fallDetected': data['fallDetected'] ?? false,
+          'deviceName': data['deviceName'] ?? 'Unknown Device',
+        };
+      }).toList();
+
+      setState(() {
+        _isLoading = false;
+        _healthRecords = records;
+      });
+    } catch (e) {
+      print('Error loading health data: $e');
+      setState(() {
+        _isLoading = false;
+        _healthRecords = [];
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF1E1E1E),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF2C2C2C),
-        elevation: 0,
+        backgroundColor: Colors.blue,
         title: const Text('Health History'),
+        elevation: 0,
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _db
-            .collection('users')
-            .doc(userController.username.value)
-            .collection('health_readings')
-            .orderBy('timestamp', descending: true)
-            // Limit the query to improve performance
-            .limit(50)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: Column(
+        children: [
+          _buildFilterSection(),
+          const SizedBox(height: 10),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _healthRecords.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No health records available',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      )
+                    : _buildRecordsList(),
+          ),
+        ],
+      ),
+    );
+  }
 
-          final readings = snapshot.data!.docs;
-          
-          // Only process data if it has changed
-          if (_cachedReadings == null || 
-              _cachedReadings!.length != readings.length ||
-              (_cachedReadings!.isNotEmpty && readings.isNotEmpty && 
-               _cachedReadings!.first.id != readings.first.id)) {
-            _processData(readings);
-          }
+  Widget _buildFilterSection() {
+    return Container(
+      color: const Color(0xFF2C2C2C),
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Filter Records',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => _showDatePicker(true),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3E3E3E),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _startDate == null
+                          ? 'Start Date'
+                          : DateFormat('MM/dd/yyyy').format(_startDate!),
+                      style: TextStyle(
+                        color: _startDate == null ? Colors.grey : Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: InkWell(
+                  onTap: () => _showDatePicker(false),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3E3E3E),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _endDate == null
+                          ? 'End Date'
+                          : DateFormat('MM/dd/yyyy').format(_endDate!),
+                      style: TextStyle(
+                        color: _endDate == null ? Colors.grey : Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              minimumSize: const Size(double.infinity, 40),
+            ),
+            onPressed: _loadHealthData,
+            child: const Text('Apply Filters'),
+          ),
+        ],
+      ),
+    );
+  }
 
-          return SingleChildScrollView(
+  Widget _buildRecordsList() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(8),
+      itemCount: _healthRecords.length,
+      itemBuilder: (context, index) {
+        final record = _healthRecords[index];
+        final formattedDate = DateFormat('MMM dd, yyyy - HH:mm').format(record['timestamp']);
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          color: const Color(0xFF2C2C2C),
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          child: InkWell(
+            onTap: () => _showRecordDetails(record),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // HRV Chart
-                  _buildChartContainer(
-                    'hrv', 
-                    'Heart Rate Variability (ms)', 
-                    Colors.orange, 
-                    _cachedHrvData ?? []
-                  ),
-
-                  // Readings List Header
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16.0),
-                    child: Text(
-                      'Health Readings History',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontFamily: 'Montserrat',
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-
-                  // Readings List - Use ListView.builder with itemExtent for better performance
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: readings.length,
-                    itemBuilder: (context, index) {
-                      // Use const where possible to reduce rebuilds
-                      if (index >= readings.length) return const SizedBox.shrink();
-                      
-                      final data = readings[index].data() as Map<String, dynamic>;
-                      final timestamp = (data['timestamp'] as Timestamp).toDate();
-                      return _buildReadingCard(
-                          data, timestamp, readings[index].id);
-                    },
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  // Process and cache data
-  void _processData(List<QueryDocumentSnapshot> readings) {
-    _cachedReadings = readings;
-    
-    final sortedReadings = readings.toList()
-      ..sort((a, b) {
-        final aTime =
-            (a.data() as Map<String, dynamic>)['timestamp'] as Timestamp;
-        final bTime =
-            (b.data() as Map<String, dynamic>)['timestamp'] as Timestamp;
-        return aTime.compareTo(bTime);
-      });
-    
-    // Get only the latest 10 readings for the charts
-    final latestReadings = sortedReadings.length > 10 
-        ? sortedReadings.sublist(sortedReadings.length - 10) 
-        : sortedReadings;
-    
-    // Pre-process data for charts
-    _cachedHeartRateData = latestReadings
-        .map((doc) => doc.data() as Map<String, dynamic>)
-        .toList();
-        
-    _cachedHrvData = latestReadings
-        .map((doc) => doc.data() as Map<String, dynamic>)
-        .toList();
-        
-    _cachedStepsData = latestReadings
-        .map((doc) => doc.data() as Map<String, dynamic>)
-        .toList();
-        
-    _cachedSkinTempData = latestReadings
-        .map((doc) => doc.data() as Map<String, dynamic>)
-        .toList();
-  }
-
-  // Extract chart container to reduce rebuilds
-  Widget _buildChartContainer(String field, String title, Color color, List<Map<String, dynamic>> data) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      height: expandedChart == field ? 450 : 250,
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(10),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withAlpha(50)),
-      ),
-      child: GestureDetector(
-        onTap: () => _toggleChart(field),
-        child: _buildChart(title, data, field, color),
-      ),
-    );
-  }
-
-  void _toggleChart(String chartName) {
-    setState(() {
-      expandedChart = expandedChart == chartName ? null : chartName;
-    });
-  }
-
-  Widget _buildChart(String title, List<Map<String, dynamic>> data,
-      String field, Color color) {
-    // Get the date of the latest reading for display at the top
-    String dateDisplay = '';
-    if (data.isNotEmpty) {
-      final latestTimestamp = data.last['timestamp'] as Timestamp;
-      final latestDate = latestTimestamp.toDate();
-      dateDisplay = '${latestDate.day}/${latestDate.month}/${latestDate.year}';
-    }
-
-    // Get the latest value for display
-    String latestValue = '';
-    if (data.isNotEmpty) {
-      latestValue = '${data.last[field]}';
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: color,
-                fontFamily: 'Montserrat',
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (latestValue.isNotEmpty)
-              Text(
-                latestValue,
-                style: TextStyle(
-                  color: color,
-                  fontFamily: 'Montserrat',
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
-              ),
-          ],
-        ),
-        // Display date at the top of the graph
-        if (dateDisplay.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 4.0),
-            child: Text(
-              'Date: $dateDisplay',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontFamily: 'Montserrat',
-                fontSize: 12,
-              ),
-            ),
-          ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: SfCartesianChart(
-            backgroundColor: Colors.transparent,
-            plotAreaBorderWidth: 0,
-            margin: const EdgeInsets.all(16), // Increased margin
-            // Reduce rendering quality for better performance
-            enableAxisAnimation: false,
-            enableSideBySideSeriesPlacement: false,
-            primaryXAxis: DateTimeAxis(
-              isVisible: true, // Keep axis visible
-              majorGridLines: const MajorGridLines(width: 0),
-              axisLine: const AxisLine(width: 1, color: Colors.grey),
-              labelStyle: TextStyle(
-                color: Colors.white.withOpacity(0.9),
-                fontSize: 10,
-                fontWeight: FontWeight.normal,
-              ),
-              dateFormat: DateFormat('HH:mm'), // Simplified format to just hour:minutes
-              intervalType: DateTimeIntervalType.minutes,
-              interval: 5, // Show labels every 5 minutes for better spacing
-              labelRotation: 0,
-              labelAlignment: LabelAlignment.center,
-              majorTickLines: const MajorTickLines(size: 0, width: 0), // Remove tick lines
-            ),
-            primaryYAxis: NumericAxis(
-              isVisible: true, // Always make Y-axis visible
-              majorGridLines: MajorGridLines(
-                width: 0.5,
-                color: Colors.grey[800],
-              ),
-              axisLine: const AxisLine(width: 0),
-              labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
-              minimum: field == 'hrv' ? 20 : null, // Set minimum value for HRV
-              maximum: field == 'hrv' ? 100 : null, // Set maximum value for HRV
-              interval: field == 'hrv' ? 10 : null, // Set interval for HRV
-            ),
-            series: <CartesianSeries<Map<String, dynamic>, DateTime>>[
-              SplineSeries<Map<String, dynamic>, DateTime>(
-                dataSource: data,
-                xValueMapper: (Map<String, dynamic> data, _) =>
-                    (data['timestamp'] as Timestamp).toDate(),
-                yValueMapper: (Map<String, dynamic> data, _) {
-                  final value = data[field];
-                  return value != null ? (value as num).toDouble() : 0;
-                },
-                color: color,
-                width: 3, // Increased line width
-                enableTooltip: true,
-                // Simplify marker settings for better performance
-                markerSettings: MarkerSettings(
-                  isVisible: true,
-                  color: color,
-                  borderColor: Colors.black,
-                  borderWidth: 1,
-                  height: 8, // Increased marker size
-                  width: 8,  // Increased marker size
-                ),
-                // Reduce animation duration
-                animationDuration: 500,
-              ),
-            ],
-            tooltipBehavior: TooltipBehavior(
-              enable: true,
-              activationMode: ActivationMode.longPress,
-              color: color.withOpacity(0.9),
-              borderColor: Colors.white.withAlpha(50),
-              borderWidth: 1,
-              textStyle: const TextStyle(
-                color: Colors.white,
-                fontFamily: 'Montserrat',
-                fontSize: 14, // Reduced font size
-                fontWeight: FontWeight.w500,
-              ),
-              duration: 2000, // Reduced duration
-              canShowMarker: true,
-              header: '',
-              opacity: 0.9,
-              shadowColor: Colors.black26,
-              elevation: 4, // Reduced elevation
-              decimalPlaces: 1,
-              tooltipPosition: TooltipPosition.pointer,
-              builder: (dynamic data, dynamic point, dynamic series,
-                  int pointIndex, int seriesIndex) {
-                final DateTime time = point.x;
-                final String formattedTime = DateFormat('HH:mm:ss').format(time);
-                final String formattedDate = DateFormat('dd/MM/yyyy').format(time);
-                
-                return Container(
-                  padding: const EdgeInsets.all(12), // Reduced padding
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: Colors.white.withAlpha(50),
-                      width: 1,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
                         formattedDate,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontFamily: 'Montserrat',
-                          fontSize: 12, // Reduced font size
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$title: ${point.y}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontFamily: 'Montserrat',
-                          fontSize: 14, // Reduced font size
+                          color: Colors.blue,
+                          fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Text(
-                        'Time: $formattedTime',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontFamily: 'Montserrat',
-                          fontSize: 12, // Reduced font size
-                          fontWeight: FontWeight.w500,
+                      // Fall detection indicator
+                      if (record['fallDetected'] == true)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade700,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'Fall Detected',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Display key health metrics
+                  Row(
+                    children: [
+                      _buildMetricCard(
+                        Icons.device_thermostat,
+                        '${record['skinTemperature'].toStringAsFixed(1)}°C',
+                        'Skin Temp',
+                        Colors.orange,
+                      ),
+                      const SizedBox(width: 12),
+                      _buildMetricCard(
+                        Icons.directions_walk,
+                        '${record['steps']}',
+                        'Steps',
+                        Colors.green,
                       ),
                     ],
                   ),
-                );
-              },
-            ),
-            zoomPanBehavior: ZoomPanBehavior(
-              enablePinching: expandedChart != null,
-              enableDoubleTapZooming: expandedChart != null,
-              enablePanning: expandedChart != null,
-              // Reduce zoom factor for better performance
-              zoomMode: ZoomMode.x,
+                  const SizedBox(height: 8),
+                  // Add device information at the bottom
+                  Text(
+                    'Device: ${record['deviceName']}',
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
-  // Optimize reading card with const where possible
-  Widget _buildReadingCard(
-      Map<String, dynamic> data, DateTime timestamp, String id) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(10),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.white.withAlpha(20),
+  Widget _buildMetricCard(
+      IconData icon, String value, String label, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF3E3E3E),
+          borderRadius: BorderRadius.circular(8),
         ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
           children: [
-            // Header row with timestamp and delete button
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    'Reading on ${timestamp.toString().split('.')[0]}',
-                    style: const TextStyle(
-                      fontFamily: 'Montserrat',
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(
-                    Icons.delete,
-                    color: Colors.red.withAlpha(150),
-                    size: 20,
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
-                  ),
-                  padding: EdgeInsets.zero,
-                  onPressed: () => _deleteReading(id),
-                ),
-              ],
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
             ),
-            const SizedBox(height: 8),
-            // Metrics in a Wrap widget to handle overflow better
-            Wrap(
-              spacing: 8.0,
-              runSpacing: 8.0,
-              children: [
-                _buildMetricChip('HRV', '${data['hrv']} ms', Colors.orange),
-                if (data['steps'] != null)
-                  _buildMetricChip('Steps', '${data['steps']}', Colors.green),
-                _buildMetricChip(
-                  'Skin Temp', 
-                  data['skinTemperature'] != null 
-                      ? '${data['skinTemperature'].toStringAsFixed(1)}°C' 
-                      : 'N/A', 
-                  Colors.blue
-                ),
-                _buildMetricChip(
-                  'Fall',
-                  data['fallDetected'] != null 
-                      ? (data['fallDetected'] == true ? 'Detected' : 'None') 
-                      : 'Unknown',
-                  data['fallDetected'] != null 
-                      ? (data['fallDetected'] == true ? Colors.red : Colors.grey) 
-                      : Colors.grey,
-                ),
-              ],
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+              ),
             ),
           ],
         ),
@@ -455,90 +313,133 @@ class _HealthHistoryPageState extends State<HealthHistoryPage> {
     );
   }
 
-  // Create a more compact metric display using chips
-  Widget _buildMetricChip(String label, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: color.withAlpha(200),
-              shape: BoxShape.circle,
+  void _showDatePicker(bool isStartDate) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: isStartDate
+          ? _startDate ?? DateTime.now()
+          : _endDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.blue,
+              onPrimary: Colors.white,
+              surface: Color(0xFF2C2C2C),
+              onSurface: Colors.white,
             ),
+            dialogBackgroundColor: const Color(0xFF3E3E3E),
           ),
-          const SizedBox(width: 4),
-          Text(
-            '$label: $value',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
-              fontFamily: 'Roboto',
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        if (isStartDate) {
+          _startDate = picked;
+          // Ensure end date is not before start date
+          if (_endDate != null && _endDate!.isBefore(_startDate!)) {
+            _endDate = _startDate;
+          }
+        } else {
+          _endDate = picked;
+          // Ensure start date is not after end date
+          if (_startDate != null && _startDate!.isAfter(_endDate!)) {
+            _startDate = _endDate;
+          }
+        }
+      });
+    }
+  }
+
+  void _showRecordDetails(Map<String, dynamic> record) {
+    final formattedDate = DateFormat('MMMM dd, yyyy - HH:mm:ss')
+        .format(record['timestamp']);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF2C2C2C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Center(
+                child: Text(
+                  'Health Record Details',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                formattedDate,
+                style: const TextStyle(
+                  color: Colors.blue,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildDetailRow('Skin Temperature', '${record['skinTemperature'].toStringAsFixed(1)}°C'),
+              _buildDetailRow('Steps Count', '${record['steps']}'),
+              _buildDetailRow('Fall Detected', record['fallDetected'] ? 'Yes' : 'No',
+                  valueColor: record['fallDetected'] ? Colors.red : Colors.green),
+              _buildDetailRow('Device', record['deviceName']),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  // Keep the old method for backward compatibility if needed
-  Widget _buildMetric(String label, String value, Color color) {
+  Widget _buildDetailRow(String label, String value, {Color? valueColor}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: color.withAlpha(150),
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 4),
           Text(
-            '$label: ',
-            style: TextStyle(
-              color: Colors.white.withAlpha(150),
-              fontFamily: 'Roboto',
-              fontSize: 12,
+            label,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w500,
-              fontFamily: 'Roboto',
-              fontSize: 12,
+              color: valueColor ?? Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ],
       ),
     );
-  }
-
-  Future<void> _deleteReading(String id) async {
-    try {
-      await _db
-          .collection('users')
-          .doc(userController.username.value)
-          .collection('health_readings')
-          .doc(id)
-          .delete();
-      Get.snackbar('Success', 'Reading deleted');
-    } catch (e) {
-      Get.snackbar('Error', 'Failed to delete reading: $e');
-    }
   }
 }

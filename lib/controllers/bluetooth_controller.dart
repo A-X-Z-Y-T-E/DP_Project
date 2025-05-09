@@ -98,19 +98,66 @@ class BluetoothController extends GetxController {
   // Timer for periodic health data storage
   Timer? _storeDataTimer;
 
+  // Add Firebase initialization check and debug method
+  Future<bool> _checkFirebaseInitialization() async {
+    print('🔥 Checking Firebase initialization status...');
+    try {
+      // Test Firebase connection by attempting a simple operation
+      await _db.collection('_test_connection').get();
+      print('✅ Firebase connection successful');
+      return true;
+    } catch (e) {
+      print('❌ Firebase connection error: ${e.toString()}');
+      
+      // Try to diagnose the issue based on the error message
+      String errorMsg = e.toString().toLowerCase();
+      if (errorMsg.contains('permission-denied') || errorMsg.contains('permission denied')) {
+        print('🔐 Firebase security rules are preventing access. Check your Firestore rules.');
+      } else if (errorMsg.contains('network') || errorMsg.contains('connection')) {
+        print('🌐 Network connection issue. Check internet connectivity.');
+      } else if (errorMsg.contains('not initialized') || errorMsg.contains('app-not-initialized')) {
+        print('🔧 Firebase not properly initialized. Check Firebase setup in main.dart');
+      } else if (errorMsg.contains('not-found')) {
+        print('📂 Collection or document not found. This may be normal for the test collection.');
+      }
+      
+      return false;
+    }
+  }
+
   @override
   void onInit() {
     super.onInit();
+    
+    // Check Firebase initialization first thing
+    _checkFirebaseInitialization().then((isInitialized) {
+      if (!isInitialized) {
+        print('⚠️ Warning: Firebase may not work correctly. Data saving might fail.');
+      }
+    });
+    
     // Initialize listeners
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
       _scanResults.value = results;
       update();
     });
 
-    // Start a timer to store health data every 5 minutes
-    _storeDataTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+    // Set up the timer with more verbose logging
+    _storeDataTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      print('⏱️ Timer fired: Periodic health data storage (every 5 minutes)');
       if (isDeviceConnected()) {
-        storeHealthData();
+        print('📱 Device is connected - proceeding with data storage');
+        _saveHealthData(heartRate); 
+      } else {
+        print('📱 Device is NOT connected - skipping data storage');
+      }
+    });
+    
+    // Add a one-time initial save attempt after a delay
+    Future.delayed(Duration(seconds: 15), () {
+      print('⏱️ Initial save attempt after 15 seconds delay');
+      if (isDeviceConnected()) {
+        _saveHealthData(heartRate);
       }
     });
   }
@@ -1035,59 +1082,136 @@ class BluetoothController extends GetxController {
     }
   }
 
+  // Modified method to add more debug info and save testing
   Future<void> _saveHealthData(int heartRate) async {
+    print('🔍 Attempting to save health data - Start debugging sequence');
+    
     try {
-      await _db
-          .collection('users')
-          .doc(_userController.username.value)
-          .collection('health_readings')
-          .add({
-        'heartRate': heartRate,
-        'spo2': 98, // Default value, update when available
-        'temperature': 37.2, // Default value, update when available
-        'bloodPressure': {
-          'systolic': 120, // Default value, update when available
-          'diastolic': 80, // Default value, update when available
-        },
-        'bloodSugar': 95, // Default value, update when available
-        'timestamp': Timestamp.now(),
-      });
-      print('Health data saved successfully to Firestore');
-    } catch (e) {
-      print('Error saving to Firestore: $e');
-    }
-  }
-
-  // Method to store health data in Firestore
-  Future<void> storeHealthData() async {
-    try {
-      // Skip if no user is logged in
+      // Check if user is logged in
       if (_userController.username.value.isEmpty) {
-        print('No user logged in, skipping health data storage');
+        print('❌ ERROR: No user logged in, username is empty - cannot save to Firestore');
         return;
       }
+      
+      print('👤 User logged in: ${_userController.username.value}');
 
-      // Create a health reading with default values for null fields
+      // Check if we have proper data to save
+      if (_pulseWaveformData.isEmpty) {
+        print('⚠️ WARNING: No waveform data to save. Will use empty array.');
+      }
+
+      // Check device connection
+      print('📱 Device connection state: ${_deviceState.value}');
+      print('📱 Device connected? ${isDeviceConnected()}');
+      
+      // Check Firebase connectivity first (bypass if we know it's failing)
+      bool firebaseAvailable = await _checkFirebaseInitialization();
+      if (!firebaseAvailable) {
+        print('⚠️ WARNING: Firebase connection issues detected. Attempting fallback save method...');
+        // In a real app, you might save locally here using shared preferences or SQLite
+        // But for now we'll continue and at least try to save
+      }
+      
+      // Get the current timestamp
+      final currentTimestamp = Timestamp.now();
+      final DateTime currentTime = currentTimestamp.toDate();
+      
+      // Create a health reading with the new schema
       final healthReading = {
-        'timestamp': Timestamp.now(),
-        'hrv': _hrv.value, // Always include HRV (default is 0)
-        'steps': _steps.value, // Default is 0
-        'fallDetected': _fallDetected.value, // Default is false
-        'skinTemperature': _skinTemperature.value > 0 ? _skinTemperature.value : 36.5, // Default to normal if 0
+        'timestamp': currentTimestamp,
+        // Convert waveform data to a more compatible format (list of integers as strings)
+        // This helps avoid serialization issues with large integer arrays
+        'waveformData': _pulseWaveformData.map((value) => value.toString()).toList(),
+        'steps': _steps.value,
+        'skinTemperature': _skinTemperature.value > 0 ? _skinTemperature.value : 36.5,
+        'fallDetected': false, // Will be implemented later
         'deviceId': _connectedDevice.value?.remoteId.str ?? 'unknown',
         'deviceName': _connectedDevice.value?.platformName ?? 'Unknown Device',
       };
 
-      // Store in Firestore
-      await _db
-          .collection('users')
-          .doc(_userController.username.value)
-          .collection('health_readings')
-          .add(healthReading);
-
-      print('Health data stored successfully');
+      // Debug print before storing
+      print('========= FIRESTORE STORAGE - START =========');
+      print('Storing health data to Firestore at ${currentTime.toString()}');
+      print('Username: ${_userController.username.value}');
+      print('Steps: ${_steps.value}');
+      print('Temperature: ${_skinTemperature.value > 0 ? _skinTemperature.value : 36.5}°C');
+      print('Device: ${_connectedDevice.value?.platformName ?? 'Unknown Device'} (${_connectedDevice.value?.remoteId.str ?? 'unknown'})');
+      print('Waveform data points: ${_pulseWaveformData.length} (converted to strings for compatibility)');
+      
+      try {
+        print('⏱️ Attempting immediate Firestore save with simplified data...');
+        
+        // Create reference path explicitly for clarity
+        final collectionRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(_userController.username.value)
+            .collection('health_readings');
+            
+        print('🔥 Writing to collection: ${collectionRef.path}');
+        
+        // Store in Firestore with more robust error handling
+        DocumentReference? docRef;
+        
+        try {
+          docRef = await collectionRef.add(healthReading);
+          print('✅ Data successfully saved to Firestore');
+          print('📄 Document ID: ${docRef.id}');
+        } catch (innerError) {
+          print('❌ First save attempt failed: $innerError');
+          
+          // Try a more robust fallback approach with a simpler payload
+          print('⚠️ Trying fallback with minimal data...');
+          final minimalData = {
+            'timestamp': FieldValue.serverTimestamp(), // Use server timestamp as a fallback
+            'steps': _steps.value,
+            'skinTemperature': _skinTemperature.value > 0 ? _skinTemperature.value : 36.5,
+            'deviceName': _connectedDevice.value?.platformName ?? 'Unknown Device',
+          };
+          
+          docRef = await collectionRef.add(minimalData);
+          print('✅ Fallback save successful with minimal data');
+          print('📄 Document ID: ${docRef.id}');
+        }
+        
+        print('========= FIRESTORE STORAGE - END =========');
+        
+      } catch (firebaseError) {
+        print('❌ ERROR: All Firestore save attempts failed: $firebaseError');
+        
+        // Additional diagnostics based on the error type
+        if (firebaseError.toString().contains('DEVELOPER_ERROR') || 
+            firebaseError.toString().contains('API unavailable')) {
+          print('🔧 Google Play Services error. You may need to:');
+          print('1. Update Google Play Services on the device');
+          print('2. Check if your app is correctly registered in Firebase console');
+          print('3. Verify the SHA-1 fingerprint in Firebase console matches your app');
+          print('4. Try rebuilding the app with a production keystore');
+        }
+      }
+      
     } catch (e) {
-      print('Error storing health data: $e');
+      // Debug print for errors
+      print('❌ ERROR: Failed to save health data to Firestore');
+      print('❌ Error type: ${e.runtimeType}');
+      print('❌ Error details: $e');
+      print('========= FIRESTORE STORAGE - FAILED =========');
+    }
+  }
+
+  // Add a manual trigger for testing purposes
+  Future<void> testFirestoreSave() async {
+    print('🧪 MANUAL TEST: Triggering Firestore save for testing...');
+    await _saveHealthData(0); // Pass a placeholder value
+  }
+
+  // Add a method to manually trigger Firebase test and save
+  Future<void> debugFirebaseAndSave() async {
+    print('🧪 MANUAL FIREBASE DEBUG TEST');
+    bool initialized = await _checkFirebaseInitialization();
+    if (initialized) {
+      await _saveHealthData(0);
+    } else {
+      print('❌ Firebase initialization check failed - fix Firebase setup first');
     }
   }
 }

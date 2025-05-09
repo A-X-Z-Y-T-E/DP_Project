@@ -739,33 +739,12 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'HRV',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Obx(() => Text(
-                            '${controller.hrv} ms',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          )),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      const Text(
                         'Steps',
                         style: TextStyle(
                           color: Colors.white70,
                           fontSize: 16,
                         ),
                       ),
-                      const SizedBox(width: 8),
                       Obx(() => Text(
                             '${controller.steps}',
                             style: const TextStyle(
