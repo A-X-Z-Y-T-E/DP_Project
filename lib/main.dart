@@ -5,6 +5,7 @@ import 'package:Vital_Monitor/views/login.dart';
 import 'package:Vital_Monitor/views/home_page.dart';
 import 'package:Vital_Monitor/firebase_options.dart';
 import 'package:Vital_Monitor/controllers/user_controller.dart';
+import 'package:Vital_Monitor/controllers/bluetooth_controller.dart';
 import 'package:get_storage/get_storage.dart';
 
 Future<void> main() async {
@@ -26,6 +27,9 @@ Future<void> main() async {
 
   // Initialize user controller
   Get.put(UserController());
+
+  // Initialize the BluetoothController at app startup
+  Get.put(BluetoothController(), permanent: true);
 
   runApp(const MyApp());
 }

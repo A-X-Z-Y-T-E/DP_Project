@@ -223,21 +223,40 @@ class _HealthHistoryPageState extends State<HealthHistoryPage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      // Fall detection indicator
+                      // Fall detection indicator with improved visibility
                       if (record['fallDetected'] == true)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: Colors.red.shade700,
                             borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.red.withOpacity(0.3),
+                                spreadRadius: 1,
+                                blurRadius: 3,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
                           ),
-                          child: const Text(
-                            'Fall Detected',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(
+                                Icons.warning_amber_rounded, 
+                                color: Colors.white, 
+                                size: 14,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'FALL DETECTED',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                     ],
@@ -373,6 +392,32 @@ class _HealthHistoryPageState extends State<HealthHistoryPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Add fall detection banner at the top of details if detected
+              if (record['fallDetected'] == true)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade800,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Fall detected in this recording. User may have required assistance.',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               const Center(
                 child: Text(
                   'Health Record Details',
@@ -395,8 +440,15 @@ class _HealthHistoryPageState extends State<HealthHistoryPage> {
               const SizedBox(height: 16),
               _buildDetailRow('Skin Temperature', '${record['skinTemperature'].toStringAsFixed(1)}°C'),
               _buildDetailRow('Steps Count', '${record['steps']}'),
-              _buildDetailRow('Fall Detected', record['fallDetected'] ? 'Yes' : 'No',
-                  valueColor: record['fallDetected'] ? Colors.red : Colors.green),
+              _buildDetailRow(
+                'Fall Detection Status', 
+                record['fallDetected'] ? 'Fall Detected' : 'No Falls Detected',
+                valueColor: record['fallDetected'] ? Colors.red : Colors.green,
+                icon: record['fallDetected'] 
+                    ? Icons.warning_amber_rounded
+                    : Icons.check_circle,
+                iconColor: record['fallDetected'] ? Colors.red : Colors.green,
+              ),
               _buildDetailRow('Device', record['deviceName']),
               const SizedBox(height: 20),
               SizedBox(
@@ -417,7 +469,7 @@ class _HealthHistoryPageState extends State<HealthHistoryPage> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value, {Color? valueColor}) {
+  Widget _buildDetailRow(String label, String value, {Color? valueColor, IconData? icon, Color? iconColor}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -430,13 +482,25 @@ class _HealthHistoryPageState extends State<HealthHistoryPage> {
               fontSize: 16,
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              color: valueColor ?? Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  color: iconColor ?? valueColor ?? Colors.white,
+                  size: 18,
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                value,
+                style: TextStyle(
+                  color: valueColor ?? Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -86,6 +86,8 @@ class BluetoothController extends GetxController {
   final buttonCharUuid = Guid('0000fe42-8e22-4541-9d4c-21edae82ed19');
   // TX Power Level characteristic UUID
   final txPowerLevelCharUuid = Guid('00000010-0000-1000-8000-00805f9b34fb');
+  // Fall detection characteristic UUID (seen in the image)
+  final fallDetectionCharUuid = Guid('00000001-8e22-4541-9d4c-21edae82ed19');
 
   // Service UUIDs
   final heartRateServiceUuid = Guid('0000180d-0000-1000-8000-00805f9b34fb');
@@ -1025,6 +1027,148 @@ class BluetoothController extends GetxController {
     }
   }
 
+  Future<void> startFallDetectionMonitoring() async {
+    try {
+      print('Starting fall detection monitoring...');
+      
+      // Try to find the fall detection characteristic across all services
+      BluetoothCharacteristic? fallDetectionChar;
+      for (var service in _services) {
+        try {
+          fallDetectionChar = service.characteristics.firstWhere(
+            (c) => c.uuid == fallDetectionCharUuid,
+          );
+          
+          if (fallDetectionChar != null) {
+            print('Found fall detection characteristic in service: ${service.uuid}');
+            break;
+          }
+        } catch (e) {
+          // Characteristic not found in this service, continue searching
+        }
+      }
+      
+      if (fallDetectionChar == null) {
+        print('Warning: Fall detection characteristic not found in any service');
+        
+        // Try with string comparison as fallback (in case UUID comparison has issues)
+        for (var service in _services) {
+          for (var characteristic in service.characteristics) {
+            if (characteristic.uuid.toString().toLowerCase().contains('00000001-8e22-4541-9d4c-21edae82ed19')) {
+              fallDetectionChar = characteristic;
+              print('Found fall detection characteristic via string comparison');
+              break;
+            }
+          }
+          if (fallDetectionChar != null) break;
+        }
+      }
+      
+      if (fallDetectionChar == null) {
+        print('Error: Could not find fall detection characteristic');
+        return;
+      }
+      
+      // Subscribe to fall detection notifications
+      print('Enabling notifications for fall detection characteristic');
+      await fallDetectionChar.setNotifyValue(true);
+      
+      fallDetectionChar.lastValueStream.listen((value) {
+        if (value.isNotEmpty) {
+          print('Received fall detection value: ${value.map((e) => e.toRadixString(16).padLeft(2, '0')).join('-')}');
+          
+          bool fallDetected = false;
+          
+          // Modified logic: fall is detected if value is not 0x00
+          // Only consider "no fall" if the value is exactly 0x00
+          if (value.length >= 1) {
+            // Check if all bytes are 0x00
+            bool allZeros = true;
+            for (int byte in value) {
+              if (byte != 0x00) {
+                allZeros = false;
+                break;
+              }
+            }
+            
+            // Fall is detected if we have any non-zero value
+            fallDetected = !allZeros;
+            
+            if (fallDetected) {
+              print('⚠️ FALL DETECTED! Value: ${value.map((e) => e.toRadixString(16).padLeft(2, '0')).join('-')} ⚠️');
+              
+              // Show alert dialog when fall is detected
+              if (Get.context != null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  showFallDetectionAlert();
+                });
+              }
+            } else {
+              print('No fall detected (all zeros in reading)');
+            }
+            
+            // Update the fallDetected state
+            if (_fallDetected.value != fallDetected) {
+              _fallDetected.value = fallDetected;
+              
+              // If a fall was detected, save health data immediately
+              if (fallDetected) {
+                print('Saving health data due to fall detection');
+                _saveHealthData(heartRate);
+              }
+              
+              // Force UI update
+              update();
+            }
+          }
+        }
+      });
+      
+      print('Successfully set up fall detection monitoring');
+    } catch (e) {
+      print('Error setting up fall detection monitoring: $e');
+    }
+  }
+  
+  void showFallDetectionAlert() {
+    // Only show if not already showing a dialog
+    if (!(Get.isDialogOpen ?? false)) {
+      Get.dialog(
+        AlertDialog(
+          backgroundColor: const Color(0xFF2C2C2C),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+              SizedBox(width: 10),
+              Text('Fall Detected!', 
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Text(
+            'A fall has been detected. This indicates the user may have fallen and might need assistance.',
+            style: TextStyle(color: Colors.white),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                // Mark as resolved (turn off fall detection)
+                updateFallDetection(false);
+                saveHealthData();
+                Get.back(); 
+              },
+              child: const Text('MARK AS RESOLVED', style: TextStyle(color: Colors.green)),
+            ),
+            TextButton(
+              onPressed: () => Get.back(),
+              child: const Text('CLOSE', style: TextStyle(color: Colors.white70)),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   Future<void> startHealthMonitoring() async {
     try {
       final service = _services.firstWhere(
@@ -1077,6 +1221,10 @@ class BluetoothController extends GetxController {
           _saveHealthData(hr);
         }
       });
+
+      // Start fall detection monitoring in addition to heart rate
+      await startFallDetectionMonitoring();
+      
     } catch (e) {
       print('Error starting health monitoring: $e');
     }
@@ -1124,7 +1272,7 @@ class BluetoothController extends GetxController {
         'waveformData': _pulseWaveformData.map((value) => value.toString()).toList(),
         'steps': _steps.value,
         'skinTemperature': _skinTemperature.value > 0 ? _skinTemperature.value : 36.5,
-        'fallDetected': false, // Will be implemented later
+        'fallDetected': _fallDetected.value, // Updated to use the actual fall detection status
         'deviceId': _connectedDevice.value?.remoteId.str ?? 'unknown',
         'deviceName': _connectedDevice.value?.platformName ?? 'Unknown Device',
       };
@@ -1135,6 +1283,7 @@ class BluetoothController extends GetxController {
       print('Username: ${_userController.username.value}');
       print('Steps: ${_steps.value}');
       print('Temperature: ${_skinTemperature.value > 0 ? _skinTemperature.value : 36.5}°C');
+      print('Fall Detected: ${_fallDetected.value}'); // Add fall detection to debug logs 
       print('Device: ${_connectedDevice.value?.platformName ?? 'Unknown Device'} (${_connectedDevice.value?.remoteId.str ?? 'unknown'})');
       print('Waveform data points: ${_pulseWaveformData.length} (converted to strings for compatibility)');
       
@@ -1213,5 +1362,25 @@ class BluetoothController extends GetxController {
     } else {
       print('❌ Firebase initialization check failed - fix Firebase setup first');
     }
+  }
+
+  // Add public methods to update fall detection status and show alert
+  void updateFallDetection(bool status) {
+    _fallDetected.value = status;
+    update();
+  }
+  
+  // Toggle fall detection status (for testing)
+  void toggleFallDetection() {
+    _fallDetected.value = !_fallDetected.value;
+    if (_fallDetected.value) {
+      showFallDetectionAlert();
+    }
+    update();
+  }
+  
+  // Add public method to save health data
+  Future<void> saveHealthData() async {
+    await _saveHealthData(heartRate);
   }
 }

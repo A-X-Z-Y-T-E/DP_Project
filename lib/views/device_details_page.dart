@@ -81,20 +81,89 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
         // Find the custom service and characteristic
         final customServiceUuid = "00000001-0000-1000-8000-00805F9B34FB";  // Based on STM toolbox
         BluetoothCharacteristic? pulseCharacteristic;
+        BluetoothCharacteristic? fallDetectionCharacteristic;
         
         // First try exact matching with the expected service/characteristic
         for (var service in controller.services) {
           for (var characteristic in service.characteristics) {
+            // Find pulse waveform characteristic
             if (characteristic.uuid.toString().toUpperCase().contains("0010")) {
               pulseCharacteristic = characteristic;
               _addLog('Found pulse waveform characteristic: ${characteristic.uuid}');
-              break;
+            }
+            
+            // Find fall detection characteristic
+            if (characteristic.uuid.toString().toUpperCase().contains("00000001-8E22-4541-9D4C-21EDAE82ED19")) {
+              fallDetectionCharacteristic = characteristic;
+              _addLog('Found fall detection characteristic: ${characteristic.uuid}');
             }
           }
-          if (pulseCharacteristic != null) break;
         }
         
-        // If we found a suitable characteristic, enable notifications
+        // Enable fall detection notifications if found
+        if (fallDetectionCharacteristic != null) {
+          if (!fallDetectionCharacteristic.isNotifying) {
+            await fallDetectionCharacteristic.setNotifyValue(true);
+            _addLog('Enabled real-time notifications for fall detection');
+          }
+          
+          // Set up notification listener for fall detection
+          fallDetectionCharacteristic.lastValueStream.listen((value) {
+            if (value.isNotEmpty) {
+              // Log the received value
+              final formattedValue = formatValueAs4ByteChunks(value);
+              _addLog('Received fall detection data: $formattedValue');
+              
+              // Check if all bytes are 0x00
+              bool allZeros = true;
+              for (int byte in value) {
+                if (byte != 0x00) {
+                  allZeros = false;
+                  break;
+                }
+              }
+              
+              // Fall is detected if we have any non-zero value
+              bool fallDetected = !allZeros;
+              
+              // Update controller if needed
+              if (controller.fallDetected != fallDetected) {
+                controller.updateFallDetection(fallDetected);
+                
+                // Add detailed log for fall detection status change
+                String status = fallDetected ? "FALL DETECTED" : "NO FALL";
+                _addLog('Fall detection status changed: $status (value: $formattedValue)');
+              }
+            }
+          });
+          
+          // Try to read initial value if available
+          if (fallDetectionCharacteristic.properties.read) {
+            try {
+              final initialValue = await controller.readCharacteristic(fallDetectionCharacteristic);
+              _addLog('Read initial fall detection data: ${formatValueAs4ByteChunks(initialValue)}');
+              
+              // Check if all bytes are 0x00
+              bool allZeros = true;
+              for (int byte in initialValue) {
+                if (byte != 0x00) {
+                  allZeros = false;
+                  break;
+                }
+              }
+              
+              // Fall is detected if we have any non-zero value
+              bool fallDetected = !allZeros;
+              controller.updateFallDetection(fallDetected);
+            } catch (e) {
+              _addLog('Failed to read initial fall detection data: $e');
+            }
+          }
+        } else {
+          _addLog('Could not find fall detection characteristic');
+        }
+        
+        // If we found a suitable pulse waveform characteristic, enable notifications
         if (pulseCharacteristic != null) {
           if (!pulseCharacteristic.isNotifying) {
             await pulseCharacteristic.setNotifyValue(true);
@@ -126,7 +195,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
           _addLog('Could not find pulse waveform characteristic (0010)');
         }
       } catch (e) {
-        _addLog('Error enabling pulse waveform: $e');
+        _addLog('Error enabling characteristic notifications: $e');
       }
     });
   }
@@ -576,8 +645,67 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Add a fall detection banner at the top when fall is detected
+            Obx(() {
+              if (controller.fallDetected) {
+                return Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade800,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'FALL DETECTED',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              'User may need assistance',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          controller.updateFallDetection(false);
+                          controller.saveHealthData();
+                        },
+                        style: TextButton.styleFrom(
+                          backgroundColor: Colors.white24,
+                        ),
+                        child: const Text(
+                          'MARK RESOLVED',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                return const SizedBox.shrink();
+              }
+            }),
+            
+            // PulseWaveform chart (kept as requested)
             const Text(
-              'Heart Rate Monitor',
+              'Pulse Waveform Monitor',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 18,
@@ -585,147 +713,15 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
               ),
             ),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1C2433),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 120,
-                    height: 200,
-                    child: Obx(() {
-                      // Determine sensor position based on location
-                      Offset sensorPosition = const Offset(
-                          0.5, 0.35); // Default to heart/chest position
-                      switch (controller.sensorLocation.toLowerCase()) {
-                        case "chest":
-                          sensorPosition = const Offset(0.5, 0.35);
-                          break;
-                        case "wrist":
-                          sensorPosition = const Offset(0.15, 0.4);
-                          break;
-                        case "finger":
-                          sensorPosition = const Offset(0.15, 0.45);
-                          break;
-                        case "hand":
-                          sensorPosition = const Offset(0.15, 0.4);
-                          break;
-                        case "ear lobe":
-                          sensorPosition = const Offset(0.65, 0.15);
-                          break;
-                        case "foot":
-                          sensorPosition = const Offset(0.65, 0.85);
-                          break;
-                        case "other":
-                          sensorPosition = const Offset(
-                              0.5, 0.35); // Default to heart/chest for "other"
-                          break;
-                      }
-
-                      return CustomPaint(
-                        painter: BodyOutlinePainter(
-                          color: Colors.white,
-                          sensorPosition: sensorPosition,
-                        ),
-                        size: const Size(120, 200),
-                      );
-                    }),
-                  ),
-                  const SizedBox(width: 24),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Text(
-                              'Skin contact',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Obx(() => Row(
-                                  children: [
-                                    Icon(
-                                      Icons.check_circle,
-                                      color: controller.hasContact
-                                          ? Colors.green
-                                          : Colors.grey,
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      controller.hasContact ? 'Yes' : 'No',
-                                      style: TextStyle(
-                                        color: controller.hasContact
-                                            ? Colors.green
-                                            : Colors.grey,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ],
-                                )),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            const Text(
-                              'Position',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Obx(() => Text(
-                                  controller.sensorLocation,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                  ),
-                                )),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            const Text(
-                              'RR Interval',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              '1.0 s',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
             const PulseWaveformChart(
-              key: ValueKey('pulseWaveformChart'),
+              key: ValueKey('primaryWaveformChart'),
               height: 220,
-              lineColor: Colors.red, // Changed from green to red
+              lineColor: Colors.red,
               title: 'Pulse Waveform Monitor',
             ),
             const SizedBox(height: 16),
+            
+            // Health metrics container (kept as requested)
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -775,6 +771,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                     ],
                   ),
                   const SizedBox(height: 16),
+                  // Enhanced fall detection status with an icon and better styling
                   Row(
                     children: [
                       const Text(
@@ -785,14 +782,24 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Obx(() => Text(
-                            controller.fallDetected ? 'Detected' : 'None',
+                      Obx(() => Row(
+                        children: [
+                          Icon(
+                            controller.fallDetected ? Icons.warning_amber_rounded : Icons.check_circle,
+                            color: controller.fallDetected ? Colors.red : Colors.green,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            controller.fallDetected ? 'FALL DETECTED' : 'No Falls Detected',
                             style: TextStyle(
                               color: controller.fallDetected ? Colors.red : Colors.green,
                               fontSize: 16,
                               fontWeight: controller.fallDetected ? FontWeight.bold : FontWeight.normal,
                             ),
-                          )),
+                          ),
+                        ],
+                      )),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -940,8 +947,9 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
     final rxValues = <int>[].obs; // Observable for notifications
     final timestamp = DateTime.now().obs;
     
-    // Check if this is the TX POWER LEVEL characteristic (0010)
+    // Check if this is a special characteristic
     final isPulseCharacteristic = characteristic.uuid.toString().toUpperCase().contains("00000010-0000-1000-8000-00805F9B34FB");
+    final isFallDetectionCharacteristic = characteristic.uuid.toString().toUpperCase().contains("00000001-8E22-4541-9D4C-21EDAE82ED19");
     
     // Set up a subscription for this characteristic if it's notifiable
     if (characteristic.properties.notify || characteristic.properties.indicate) {
@@ -954,6 +962,31 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
           final formattedValue = formatValueAs4ByteChunks(value);
           final characteristicId = characteristic.uuid.toString();
           
+          // Check if this is the fall detection characteristic and update fall status
+          if (isFallDetectionCharacteristic) {
+            // Check if all bytes are 0x00
+            bool allZeros = true;
+            for (int byte in value) {
+              if (byte != 0x00) {
+                allZeros = false;
+                break;
+              }
+            }
+            
+            // Fall is detected if we have any non-zero value
+            bool fallDetected = !allZeros;
+            
+            // Update controller if needed
+            if (controller.fallDetected != fallDetected) {
+              controller.updateFallDetection(fallDetected);
+            }
+            
+            // Add detailed log for fall detection values
+            String status = fallDetected ? "FALL DETECTED" : "NO FALL";
+            _addLog('Fall detection status: $status (value: $formattedValue)');
+          }
+          
+          // Only log if the value has changed
           if (lastNotificationValues[characteristicId] != formattedValue) {
             lastNotificationValues[characteristicId] = formattedValue;
             
@@ -967,7 +1000,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
       });
     }
     
-    if (isPulseCharacteristic) {
+    // Create a special widget for Fall Detection characteristic
+    if (isFallDetectionCharacteristic) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -975,118 +1009,333 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-            Expanded(
-              child: Text(
-                _getCharacteristicName(characteristic.uuid),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  "FALL DETECTION SENSOR",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () {
-                // Edit functionality could be added here
-              },
-              child: const Icon(
-                Icons.edit,
-                color: Colors.yellow,
-                size: 20,
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () {
+                  // Edit functionality could be added here
+                },
+                child: const Icon(
+                  Icons.edit,
+                  color: Colors.yellow,
+                  size: 20,
+                ),
               ),
-            ),
-          ],
-        ),
-        Text(
-          characteristic.uuid.toString().toUpperCase(),
-          style: const TextStyle(
-            color: Colors.blue,
-            fontSize: 14,
+            ],
           ),
-        ),
-        const SizedBox(height: 8),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              if (characteristic.properties.read)
-                ElevatedButton(
-                  onPressed: () async {
-                    try {
-                      final value = await controller.readCharacteristic(characteristic);
-                      rxValues.value = value; // Update the value
-                      timestamp.value = DateTime.now();
-                      
-                      // Enhanced logging for characteristic reads
-                      final formattedValue = formatValueAs4ByteChunks(value);
-                      final characteristicName = _getCharacteristicName(characteristic.uuid);
-                      
-                      // Format log message similar to the images - show full details in app logs
-                      String logMessage = 'Read value for characteristic(characteristic: {id: ${characteristic.uuid}, ' +
-                          'serviceID: ${characteristic.serviceUuid}, name: $characteristicName, value: $formattedValue})';
-                      
-                      _addLog(logMessage);
-                    } catch (e) {
-                      _addLog('Read error: $e');
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.yellow,
-                    foregroundColor: Colors.black,
-                  ),
-                  child: const Text('READ'),
-                ),
-              if (characteristic.properties.read) 
-                const SizedBox(width: 8),
-              if (characteristic.properties.write || characteristic.properties.writeWithoutResponse)
-                ElevatedButton(
-                  onPressed: () {
-                    _showWriteDialog(characteristic);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.yellow,
-                    foregroundColor: Colors.black,
-                  ),
-                  child: const Text('WRITE'),
-                ),
-              if ((characteristic.properties.write || characteristic.properties.writeWithoutResponse) && 
-                  (characteristic.properties.notify || characteristic.properties.indicate)) 
-                const SizedBox(width: 8),
-              if (characteristic.properties.notify || characteristic.properties.indicate)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Indicate',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                    ),
-                    const SizedBox(width: 4),
-                    Switch(
-                      value: characteristic.isNotifying, // Track notification state
-                      onChanged: (value) async {
-                        try {
-                          await characteristic.setNotifyValue(value);
-                          // If we're turning off notifications, clear the stored value
-                          if (!value) {
-                            lastNotificationValues.remove(characteristic.uuid.toString());
+          Text(
+            characteristic.uuid.toString().toUpperCase(),
+            style: const TextStyle(
+              color: Colors.blue,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                if (characteristic.properties.read)
+                  ElevatedButton(
+                    onPressed: () async {
+                      try {
+                        final value = await controller.readCharacteristic(characteristic);
+                        rxValues.value = value; // Update the value
+                        timestamp.value = DateTime.now();
+                        
+                        // Enhanced logging for characteristic reads
+                        final formattedValue = formatValueAs4ByteChunks(value);
+                        
+                        // Update fall detection status based on read value
+                        bool allZeros = true;
+                        for (int byte in value) {
+                          if (byte != 0x00) {
+                            allZeros = false;
+                            break;
                           }
-                          _addLog(value 
-                            ? 'Notifications enabled for ${_getCharacteristicName(characteristic.uuid)}'
-                            : 'Notifications disabled for ${_getCharacteristicName(characteristic.uuid)}');
-                        } catch (e) {
-                          _addLog('Notification error: $e');
                         }
-                      },
-                      activeColor: Colors.blue,
+                        bool fallDetected = !allZeros;
+                        controller.updateFallDetection(fallDetected);
+                        
+                        String logMessage = 'Read value for characteristic(characteristic: {id: ${characteristic.uuid}, ' +
+                            'serviceID: ${characteristic.serviceUuid}, name: FALL DETECTION SENSOR, value: $formattedValue})';
+                        
+                        _addLog(logMessage);
+                      } catch (e) {
+                        _addLog('Read error: $e');
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.yellow,
+                      foregroundColor: Colors.black,
+                    ),
+                    child: const Text('READ'),
+                  ),
+                if (characteristic.properties.read) 
+                  const SizedBox(width: 8),
+                if (characteristic.properties.write || characteristic.properties.writeWithoutResponse)
+                  ElevatedButton(
+                    onPressed: () {
+                      _showWriteDialog(characteristic);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.yellow,
+                      foregroundColor: Colors.black,
+                    ),
+                    child: const Text('WRITE'),
+                  ),
+                if ((characteristic.properties.write || characteristic.properties.writeWithoutResponse) && 
+                    (characteristic.properties.notify || characteristic.properties.indicate)) 
+                  const SizedBox(width: 8),
+                if (characteristic.properties.notify || characteristic.properties.indicate)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Notify',
+                        style: TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
+                      const SizedBox(width: 4),
+                      Switch(
+                        value: characteristic.isNotifying,
+                        onChanged: (value) async {
+                          try {
+                            await characteristic.setNotifyValue(value);
+                            _addLog(value 
+                              ? 'Notifications enabled for Fall Detection Sensor'
+                              : 'Notifications disabled for Fall Detection Sensor');
+                          } catch (e) {
+                            _addLog('Notification error: $e');
+                          }
+                        },
+                        activeColor: Colors.blue,
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Value',
+            style: TextStyle(
+              color: Colors.blue,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Obx(() {
+            String displayValue = rxValues.isNotEmpty 
+                ? formatValueAs4ByteChunks(rxValues)
+                : '00';
+            
+            // Determine status based on value
+            bool allZeros = true;
+            if (rxValues.isNotEmpty) {
+              for (int byte in rxValues) {
+                if (byte != 0x00) {
+                  allZeros = false;
+                  break;
+                }
+              }
+            }
+            
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(rxValues.isEmpty ? Icons.play_arrow : Icons.expand_more, color: Colors.blue),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        displayValue,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontFamily: 'Courier',
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                      ),
                     ),
                   ],
                 ),
-              if (characteristic.properties.notify)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: allZeros ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: allZeros ? Colors.green : Colors.red)
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        allZeros ? Icons.check_circle : Icons.warning_amber_rounded,
+                        color: allZeros ? Colors.green : Colors.red,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        allZeros ? 'NO FALL DETECTED' : 'FALL DETECTED',
+                        style: TextStyle(
+                          color: allZeros ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          }),
+          const SizedBox(height: 8),
+          Obx(() => Text(
+            'Updated at ${_formatTime(timestamp.value)}',
+            style: const TextStyle(
+              color: Colors.blue,
+              fontSize: 12,
+            ),
+          )),
+          if (characteristic.descriptors.isNotEmpty) ...[
+            // ...existing descriptor code...
+          ],
+          const SizedBox(height: 16),
+          const Divider(color: Colors.white24),
+        ],
+      );
+    }
+    else if (isPulseCharacteristic) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  _getCharacteristicName(characteristic.uuid),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () {
+                  // Edit functionality could be added here
+                },
+                child: const Icon(
+                  Icons.edit,
+                  color: Colors.yellow,
+                  size: 20,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            characteristic.uuid.toString().toUpperCase(),
+            style: const TextStyle(
+              color: Colors.blue,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                if (characteristic.properties.read)
+                  ElevatedButton(
+                    onPressed: () async {
+                      try {
+                        final value = await controller.readCharacteristic(characteristic);
+                        rxValues.value = value; // Update the value
+                        timestamp.value = DateTime.now();
+                        
+                        // Enhanced logging for characteristic reads
+                        final formattedValue = formatValueAs4ByteChunks(value);
+                        final characteristicName = _getCharacteristicName(characteristic.uuid);
+                        
+                        // Format log message similar to the images - show full details in app logs
+                        String logMessage = 'Read value for characteristic(characteristic: {id: ${characteristic.uuid}, ' +
+                            'serviceID: ${characteristic.serviceUuid}, name: $characteristicName, value: $formattedValue})';
+                        
+                        _addLog(logMessage);
+                      } catch (e) {
+                        _addLog('Read error: $e');
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.yellow,
+                      foregroundColor: Colors.black,
+                    ),
+                    child: const Text('READ'),
+                  ),
+                if (characteristic.properties.read) 
+                  const SizedBox(width: 8),
+                if (characteristic.properties.write || characteristic.properties.writeWithoutResponse)
+                  ElevatedButton(
+                    onPressed: () {
+                      _showWriteDialog(characteristic);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.yellow,
+                      foregroundColor: Colors.black,
+                    ),
+                    child: const Text('WRITE'),
+                  ),
+                if ((characteristic.properties.write || characteristic.properties.writeWithoutResponse) && 
+                    (characteristic.properties.notify || characteristic.properties.indicate)) 
+                  const SizedBox(width: 8),
+                if (characteristic.properties.notify || characteristic.properties.indicate)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Indicate',
+                        style: TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
+                      const SizedBox(width: 4),
+                      Switch(
+                        value: characteristic.isNotifying, // Track notification state
+                        onChanged: (value) async {
+                          try {
+                            await characteristic.setNotifyValue(value);
+                            // If we're turning off notifications, clear the stored value
+                            if (!value) {
+                              lastNotificationValues.remove(characteristic.uuid.toString());
+                            }
+                            _addLog(value 
+                              ? 'Notifications enabled for ${_getCharacteristicName(characteristic.uuid)}'
+                              : 'Notifications disabled for ${_getCharacteristicName(characteristic.uuid)}');
+                          } catch (e) {
+                            _addLog('Notification error: $e');
+                          }
+                        },
+                        activeColor: Colors.blue,
+                      ),
+                    ],
+                  ),
+                if (characteristic.properties.notify)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                     const SizedBox(width: 16),
                     const Text(
                       'Notify',
@@ -1109,125 +1358,127 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                     ),
                   ],
                 ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Value',
-          style: TextStyle(
-            color: Colors.blue,
-            fontSize: 14,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Obx(() {
-          String displayValue = rxValues.isNotEmpty 
-              ? formatValueAs4ByteChunks(rxValues)
-              : '00';
-          
-          return Row(
-            children: [
-              Icon(rxValues.isEmpty ? Icons.play_arrow : Icons.expand_more, color: Colors.blue),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  displayValue,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontFamily: 'Courier',
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 2,
-                ),
-              ),
-            ],
-          );
-        }),
-        const SizedBox(height: 8),
-        const Text(
-          'Pulse Waveform',
-          style: TextStyle(
-            color: Colors.green,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.green.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.green.withOpacity(0.3))
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.info_outline, color: Colors.green, size: 16),
-              const SizedBox(width: 8),
-              Expanded(
-                child: RichText(
-                  text: const TextSpan(
-                    children: [
-                      TextSpan(
-                        text: 'Live waveform visualization is available in the ',
-                        style: TextStyle(color: Colors.white70)
-                      ),
-                      TextSpan(
-                        text: 'PROFILE',
-                        style: TextStyle(
-                          color: Colors.green, 
-                          fontWeight: FontWeight.bold
-                        )
-                      ),
-                      TextSpan(
-                        text: ' tab',
-                        style: TextStyle(color: Colors.white70)
-                      ),
-                    ]
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Obx(() => Padding(
-          padding: const EdgeInsets.only(top: 8.0),
-          child: Text(
-            'Data points: ${controller.pulseWaveformData.length}',
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
+              ],
             ),
           ),
-        )),
-        Obx(() => Text(
-          'Updated at ${_formatTime(timestamp.value)}',
-          style: const TextStyle(
-            color: Colors.blue,
-            fontSize: 12,
-          ),
-        )),
-        if (characteristic.descriptors.isNotEmpty) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           const Text(
-            'Descriptors',
+            'Value',
             style: TextStyle(
               color: Colors.blue,
               fontSize: 14,
             ),
           ),
+          const SizedBox(height: 4),
+          Obx(() {
+            String displayValue = rxValues.isNotEmpty 
+                ? formatValueAs4ByteChunks(rxValues)
+                : '00';
+            
+            return Row(
+              children: [
+                Icon(rxValues.isEmpty ? Icons.play_arrow : Icons.expand_more, color: Colors.blue),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    displayValue,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontFamily: 'Courier',
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                  ),
+                ),
+              ],
+            );
+          }),
           const SizedBox(height: 8),
-          ...characteristic.descriptors.map((descriptor) => 
-            _buildDescriptorItem(descriptor)
-          ).toList(),
+          const Text(
+            'Pulse Waveform',
+            style: TextStyle(
+              color: Colors.green,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.withOpacity(0.3))
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.green, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: RichText(
+                    text: const TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'Live waveform visualization is available in the ',
+                          style: TextStyle(color: Colors.white70)
+                        ),
+                        TextSpan(
+                          text: 'PROFILE',
+                          style: TextStyle(
+                            color: Colors.green, 
+                            fontWeight: FontWeight.bold
+                          )
+                        ),
+                        TextSpan(
+                          text: ' tab',
+                          style: TextStyle(color: Colors.white70)
+                        ),
+                      ]
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Obx(() => Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Text(
+              'Data points: ${controller.pulseWaveformData.length}',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+              ),
+            ),
+          )),
+          Obx(() => Text(
+            'Updated at ${_formatTime(timestamp.value)}',
+            style: const TextStyle(
+              color: Colors.blue,
+              fontSize: 12,
+            ),
+          )),
+          if (characteristic.descriptors.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Text(
+              'Descriptors',
+              style: TextStyle(
+                color: Colors.blue,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...characteristic.descriptors.map((descriptor) => 
+              _buildDescriptorItem(descriptor)
+            ).toList(),
+          ],
+          const SizedBox(height: 16),
+          const Divider(color: Colors.white24),
         ],
-        const SizedBox(height: 16),
-        const Divider(color: Colors.white24),
-      ],
-    );
+      );
     }
+    
+    // Default characteristic display
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1289,7 +1540,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
                       
                       _addLog(logMessage);
                     } catch (e) {
-                      _addLog('Read error: $e');
+                      _addLog('Failed to read ${characteristic.uuid}: $e');
                     }
                   },
                   style: ElevatedButton.styleFrom(
@@ -1547,7 +1798,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1C2433),
+        color: const Color(0xFF1C2C3C),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -1972,96 +2223,4 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage>
     
     return formattedValue.toString();
   }
-}
-
-class BodyOutlinePainter extends CustomPainter {
-  final Color color;
-  final Offset sensorPosition;
-
-  BodyOutlinePainter({
-    this.color = Colors.white,
-    required this.sensorPosition,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
-
-    final width = size.width;
-    final height = size.height;
-
-    // Head
-    canvas.drawCircle(
-      Offset(width / 2, height * 0.1),
-      height * 0.08,
-      paint,
-    );
-
-    // Neck
-    canvas.drawLine(
-      Offset(width / 2, height * 0.18),
-      Offset(width / 2, height * 0.22),
-      paint,
-    );
-
-    // Body
-    final bodyPath = Path()
-      ..moveTo(width * 0.35, height * 0.22)
-      ..lineTo(width * 0.35, height * 0.5)
-      ..lineTo(width * 0.65, height * 0.5)
-      ..lineTo(width * 0.65, height * 0.22)
-      ..close();
-    canvas.drawPath(bodyPath, paint);
-
-    // Arms
-    final leftArmPath = Path()
-      ..moveTo(width * 0.35, height * 0.25)
-      ..quadraticBezierTo(
-        width * 0.2,
-        height * 0.25,
-        width * 0.15,
-        height * 0.4,
-      );
-    canvas.drawPath(leftArmPath, paint);
-
-    final rightArmPath = Path()
-      ..moveTo(width * 0.65, height * 0.25)
-      ..quadraticBezierTo(
-        width * 0.8,
-        height * 0.25,
-        width * 0.85,
-        height * 0.4,
-      );
-    canvas.drawPath(rightArmPath, paint);
-
-    // Legs
-    canvas.drawLine(
-      Offset(width * 0.4, height * 0.5),
-      Offset(width * 0.35, height * 0.85),
-      paint,
-    );
-    canvas.drawLine(
-      Offset(width * 0.6, height * 0.5),
-      Offset(width * 0.65, height * 0.85),
-      paint,
-    );
-
-    // Draw sensor position
-    final sensorPaint = Paint()
-      ..color = Colors.red
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(
-      Offset(width * sensorPosition.dx, height * sensorPosition.dy),
-      6,
-      sensorPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(BodyOutlinePainter oldDelegate) =>
-      color != oldDelegate.color ||
-      sensorPosition != oldDelegate.sensorPosition;
 }
