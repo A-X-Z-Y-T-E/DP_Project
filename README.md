@@ -266,7 +266,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 **Developer:** Siddhanth P Vashist  
 **Email:** [siddhanthpvashist@gmail.com](mailto:siddhanthpvashist@gmail.com)  
-**GitHub:** [@yourusername](https://github.com/A-X-Z-Y-T-E)
+**GitHub:** [@A-X-Z-Y-T-E](https://github.com/A-X-Z-Y-T-E)
 
 ---
 
